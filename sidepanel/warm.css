@@ -194,4 +194,20 @@ button.small { padding: 5px 12px; border-radius: 14px; border: none; }
 .u-fields select { grid-column: 1 / -1; }
 .u-add { display: flex; gap: 6px; }
 .u-add input { flex: 1; min-width: 0; padding: 7px 10px; border: 1px solid var(--border); border-radius: 16px; background: var(--card); }
-.u-fields select, .w-banner select { color: var(--fg); }
+.u-fields select, .w-banner select { color: var(--fg); background-color: var(--bg); }
+.u-fields select option, .w-banner select option { color: var(--fg); background-color: var(--card); }
+.u-fields select:invalid, .u-fields select.empty { color: var(--muted); }
+
+/* ---------- Upload lock + auto-tracking ---------- */
+.w-locked p { margin: 6px 0 0; }
+.w-locked button { margin-top: 10px; }
+.u-auto { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--card); font-size: 13px; }
+.u-auto > div { flex: 1; }
+.u-auto .muted { font-size: 12px; margin-top: 2px; line-height: 1.4; }
+.u-auto button { flex: none; white-space: nowrap; }
+.u-auto button:disabled { opacity: 0.5; cursor: default; }
+.u-studio { display: block; font-weight: 400; font-size: 10px; color: var(--muted); margin-top: 4px; white-space: nowrap; text-decoration: none; }
+.u-studio:hover { color: var(--fg); text-decoration: underline; }
+.u-h { min-width: 56px; }
+.u-manual summary { font-size: 12px; color: var(--muted); cursor: pointer; padding: 4px 0; }
+.u-manual[open] { display: flex; flex-direction: column; gap: 6px; }

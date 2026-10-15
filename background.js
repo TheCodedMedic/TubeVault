@@ -235,6 +235,8 @@ async function handle(msg) {
       });
     case 'warm:refreshViews':
       return checkUploads(true);
+    case 'warm:syncUploads': // the Refresh button: find new uploads now
+      return syncUploads(msg.id, { manual: true });
     case 'warm:device':
       return getDevice();
   }
@@ -274,15 +276,21 @@ async function checkUploads(force = false) {
       const due = TVWarm.CHECKPOINTS.filter((h) => ageH >= h && !u.checks?.[h]?.notified);
       if (!due.length && !force) continue;
       if (ageH > 80 && !force && !due.length) continue;
-      const info = await fetchVideo(u.videoId);
+      // Views were just refreshed from the channel feed? Use them; otherwise read the video page.
+      const fresh = u.viewsAt && Date.now() - u.viewsAt < 10 * 60 * 1000;
+      const info = fresh ? { views: u.lastViews } : await fetchVideo(u.videoId);
       await mutate((d) => {
         const up = findUpload(d, c.id, u.id);
         if (!up) return;
-        if (info?.views != null) up.lastViews = info.views;
+        if (info?.views != null) {
+          up.lastViews = info.views;
+          up.viewsAt = Date.now();
+        }
         up.checks = up.checks || {};
         for (const h of due) {
           const check = (up.checks[h] = up.checks[h] || {});
-          if (info?.views != null && check.views == null) {
+          // Only the latest due check-in gets today's views; earlier ones that were missed stay blank.
+          if (h === due[due.length - 1] && info?.views != null && check.views == null) {
             check.views = info.views;
             check.autoViews = true;
           }
@@ -298,6 +306,88 @@ async function checkUploads(force = false) {
         });
       });
     }
+  }
+}
+
+// ---------- Automatic upload tracking (channel feed) ----------
+
+const MAX_AUTO_UPLOADS = 5; // the "first uploads" we follow automatically
+
+// The channel's UC... id, needed for its public feed. Found from the @handle page once, then saved.
+async function channelYtId(channel) {
+  if (channel.ytChannelId) return channel.ytChannelId;
+  if (!channel.handle) return null;
+  try {
+    const html = await (await fetch(`https://www.youtube.com/${encodeURIComponent(channel.handle).replace('%40', '@')}`, { credentials: 'include' })).text();
+    const id = (html.match(/"externalId":"(UC[\w-]{22})"/) || html.match(/youtube\.com\/channel\/(UC[\w-]{22})/) || [])[1] || null;
+    if (id) await mutate((d) => {
+      const c = d.channels.find((x) => x.id === channel.id);
+      if (c) c.ytChannelId = id;
+    });
+    return id;
+  } catch {
+    return null;
+  }
+}
+
+// Finds videos published since the warm-up started, starts tracking them, and refreshes their views.
+async function syncUploads(id, { manual = false } = {}) {
+  const data = await TVWarm.load();
+  const channel = data.channels.find((c) => c.id === id);
+  if (!channel) return { error: 'Channel not found.' };
+  const access = TVWarm.uploadsAccess(channel, TVWarm.score(data, channel).verdict);
+  if (access.state !== 'unlocked') return { error: 'First uploads are still locked.' };
+
+  const ytId = await channelYtId(channel);
+  if (!ytId) return { error: channel.handle ? `Couldn't find ${channel.handle} on YouTube.` : 'Add your channel link first.' };
+
+  let entries;
+  try {
+    entries = TVWarm.parseFeed(await (await fetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${ytId}`)).text());
+  } catch {
+    return { error: "Couldn't reach YouTube. Try again in a minute." };
+  }
+  const since = new Date(channel.startDate + 'T00:00').getTime();
+
+  const added = await mutate((d) => {
+    const c = d.channels.find((x) => x.id === id);
+    if (!c) return [];
+    c.uploads = c.uploads || [];
+    c.lastSync = Date.now();
+    const newOnes = [];
+    // Oldest first, so "first uploads" really are the first ones.
+    for (const e of [...entries].sort((a, b) => a.publishedAt - b.publishedAt)) {
+      let up = c.uploads.find((u) => u.videoId === e.videoId);
+      if (!up && e.publishedAt >= since && c.uploads.length < MAX_AUTO_UPLOADS) {
+        up = { id: TVWarm.uid(), videoId: e.videoId, title: e.title, publishedAt: e.publishedAt, collab: false, checks: {}, auto: true };
+        c.uploads.push(up);
+        newOnes.push(up);
+      }
+      if (up && Number.isFinite(e.views)) {
+        up.lastViews = e.views;
+        up.viewsAt = Date.now();
+        if (e.title) up.title = e.title;
+      }
+    }
+    return newOnes;
+  });
+
+  for (const up of added) {
+    chrome.notifications.create(`upload-new-${up.id}`, {
+      type: 'basic',
+      iconUrl: 'icons/icon128.png',
+      title: `Now tracking: ${up.title}`,
+      message: 'TubeVault found your new upload. Check-ins at 8h, 24h, 48h and 72h.',
+    });
+  }
+  await checkUploads(); // fill any check-ins that are already due
+  return { added: added.length, found: entries.length, manual };
+}
+
+async function syncAllUploads() {
+  const data = await TVWarm.load();
+  for (const c of data.channels) {
+    if (TVWarm.uploadsAccess(c, TVWarm.score(data, c).verdict).state === 'unlocked') await syncUploads(c.id);
   }
 }
 
@@ -362,7 +452,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'warm-reminder') sendReminder();
   if (alarm.name === 'warm-tick') {
     updateBadge(); // also rolls the badge over at midnight
-    checkUploads();
+    syncAllUploads().then(() => checkUploads());
   }
 });
 

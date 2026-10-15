@@ -161,8 +161,23 @@
 
   function uploadsHtml(c, s) {
     const uploads = c.uploads || [];
-    if (s.verdict !== 'green' && !uploads.length) {
-      return `<h3>First uploads</h3><div class="w-locked muted">🔒 Unlocks when this channel is <b>Good to start</b>. Then track your first videos at 8h, 24h, 48h and 72h.</div>`;
+    const access = TVWarm.uploadsAccess(c, s.verdict);
+    const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+    if (access.state === 'locked') {
+      return `<h3>First uploads 🔒</h3>
+        <div class="w-locked">
+          <b>Locked: you're on day ${access.day} of the warm-up.</b>
+          <p class="muted">You can unlock it early on day ${TVWarm.FORCE_DAY} (in ${plural(access.forceIn, 'day')}). It opens by itself on day ${TVWarm.AUTO_DAY}, or as soon as the channel is Good to start.</p>
+          <p class="muted">Once open, TubeVault finds your uploads by itself and tracks them at 8h, 24h, 48h and 72h.</p>
+        </div>`;
+    }
+    if (access.state === 'can-force') {
+      return `<h3>First uploads 🔒</h3>
+        <div class="w-locked">
+          <b>Day ${access.day}: you can start tracking uploads now.</b>
+          <p class="muted">Or keep warming. It unlocks by itself on day ${TVWarm.AUTO_DAY} (in ${plural(access.autoIn, 'day')}).</p>
+          <button type="button" class="primary small" data-action="force-unlock">Unlock now</button>
+        </div>`;
     }
     const decision = TVWarm.uploadsDecision(uploads);
     const sourceOptions = (sel) =>
@@ -182,7 +197,7 @@
           const num = (f, ph, step = '1') =>
             `<input type="number" min="0" step="${step}" placeholder="${ph}" value="${ck[f] ?? ''}" data-action="check" data-upload="${u.id}" data-hours="${h}" data-field="${f}" />`;
           return `<div class="u-row">
-            <span class="u-h">${h}h</span>
+            <span class="u-h">${h}h<a class="u-studio" href="https://studio.youtube.com/video/${esc(u.videoId)}/analytics/tab-reach_viewers/period-default" target="_blank" rel="noopener" title="Open this video's Reach analytics in YouTube Studio">Open in Studio ↗</a></span>
             <div class="u-fields">
               <label>Views ${num('views', '0')}${ck.autoViews ? '<small>auto</small>' : ''}</label>
               <label>Impressions ${num('impressions', '0')}</label>
@@ -204,16 +219,30 @@
       })
       .join('');
 
+    const needsLink = !c.handle && !c.ytChannelId;
+    const mins = c.lastSync ? Math.round((Date.now() - c.lastSync) / 60000) : null;
+    const synced = mins == null ? 'Not checked yet' : mins < 1 ? 'Last checked just now' : mins < 60 ? `Last checked ${mins} min ago` : `Last checked ${relTime(Date.now() - c.lastSync)} ago`;
     return `<h3>First uploads</h3>
-      <div class="w-hint">After each check-in, open <b>YouTube Studio → Content → the video → Analytics → Reach</b> and copy the numbers here. Views fill in automatically when possible.</div>
+      <div class="u-auto">
+        <div>
+          <b>Auto-tracking is on.</b>
+          <div class="muted">TubeVault checks your channel every 30 minutes, starts tracking new uploads and fills in their views. ${synced}.</div>
+        </div>
+        <button type="button" class="primary small" data-action="sync-uploads" ${needsLink ? 'disabled' : ''}>↻ Refresh</button>
+      </div>
+      ${needsLink ? `<form class="u-add" data-form="channel-link"><input name="link" placeholder="Your channel link or @handle" /><button type="submit" class="primary small">Save</button></form>` : ''}
+      ${!uploads.length && !needsLink ? `<div class="w-hint">No uploads since ${esc(c.startDate)} yet. Publish your first video and it'll appear here, or press Refresh.</div>` : ''}
+      <div class="w-hint">Impressions, CTR and traffic source are only visible in YouTube Studio: use <b>Open in Studio</b> on a check-in and copy them over.</div>
       ${decision ? `<div class="u-decision ${decision.key}">${esc(decision.label)}</div>` : ''}
       ${cards}
-      <form class="u-add" data-form="upload">
-        <input name="url" placeholder="Paste the video link" />
-        <button type="submit" class="primary small">Track</button>
-      </form>
-      <button type="button" class="w-link" data-action="upload-current">+ Track the video open in my current tab</button>
-      ${uploads.length ? `<button type="button" class="w-link" data-action="refresh-views">↻ Refresh view counts</button>` : ''}`;
+      <details class="u-manual">
+        <summary>Video not showing up? Add it yourself</summary>
+        <form class="u-add" data-form="upload">
+          <input name="url" placeholder="Paste the video link" />
+          <button type="submit" class="primary small">Track</button>
+        </form>
+        <button type="button" class="w-link" data-action="upload-current">+ Track the video open in my current tab</button>
+      </details>`;
   }
 
   const parseVideoId = (url) => {
@@ -360,9 +389,15 @@
       send({ type: 'warm:adjust', id: openId, date: selectedDate, field: el.dataset.field, delta: Number(el.dataset.delta) });
     } else if (action === 'del-upload') {
       if (confirm('Stop tracking this video?')) send({ type: 'warm:deleteUpload', id: openId, uploadId: el.dataset.upload });
-    } else if (action === 'refresh-views') {
-      el.textContent = 'Refreshing…';
-      send({ type: 'warm:refreshViews' });
+    } else if (action === 'force-unlock') {
+      send({ type: 'warm:updateChannel', id: openId, patch: { forceUnlocked: true } }).then(() => send({ type: 'warm:syncUploads', id: openId }));
+    } else if (action === 'sync-uploads') {
+      el.disabled = true;
+      el.textContent = 'Checking…';
+      const r = (await send({ type: 'warm:syncUploads', id: openId }))?.result;
+      if (r?.error) flash(r.error);
+      else flash(r?.added ? `Found ${r.added} new upload${r.added === 1 ? '' : 's'}.` : 'No new uploads yet. Views are up to date.');
+      render();
     } else if (action === 'upload-current') {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       let v = null;
@@ -422,6 +457,16 @@
   root.addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;
+    if (f.dataset.form === 'channel-link') {
+      const v = f.link.value.trim();
+      const uc = (v.match(/channel\/(UC[\w-]{22})/) || v.match(/^(UC[\w-]{22})$/) || [])[1];
+      const handle = (v.match(/(@[\w.-]+)/) || [])[1];
+      if (!uc && !handle) return flash('Paste a link like youtube.com/@yourchannel');
+      await send({ type: 'warm:updateChannel', id: openId, patch: uc ? { ytChannelId: uc } : { handle } });
+      const r = (await send({ type: 'warm:syncUploads', id: openId }))?.result;
+      if (r?.error) flash(r.error);
+      return;
+    }
     if (f.dataset.form === 'upload') {
       const id = parseVideoId(f.url.value.trim());
       if (!id) return flash("That doesn't look like a YouTube video link.");

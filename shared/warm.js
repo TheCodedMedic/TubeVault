@@ -224,6 +224,37 @@ var TVWarm = (() => {
     return { key: 'waiting', label: 'Add the top traffic source to judge it' };
   }
 
+  // Day number of the warm-up (start date = day 1).
+  function dayNumber(channel) {
+    const start = new Date(channel.startDate + 'T00:00');
+    const today = new Date(dateKey() + 'T00:00');
+    return Math.floor((today - start) / 86400000) + 1;
+  }
+
+  // First uploads: locked until day 5, can be unlocked early from day 5, opens by itself on day 7
+  // (or as soon as the channel is Good to start).
+  const FORCE_DAY = 5;
+  const AUTO_DAY = 7;
+  function uploadsAccess(channel, verdict) {
+    const day = dayNumber(channel);
+    if (verdict === 'green') return { state: 'unlocked', day, why: 'Good to start' };
+    if (day >= AUTO_DAY) return { state: 'unlocked', day, why: `Day ${AUTO_DAY} reached` };
+    if (day >= FORCE_DAY && channel.forceUnlocked) return { state: 'unlocked', day, why: 'Unlocked early' };
+    if (day >= FORCE_DAY) return { state: 'can-force', day, autoIn: AUTO_DAY - day };
+    return { state: 'locked', day, forceIn: FORCE_DAY - day, autoIn: AUTO_DAY - day };
+  }
+
+  // Parses YouTube's public channel feed (latest 15 videos). Regex-based so it also works in the service worker.
+  function parseFeed(xml) {
+    const decode = (t) => t.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+    return (xml.match(/<entry>[\s\S]*?<\/entry>/g) || []).map((e) => ({
+      videoId: (e.match(/<yt:videoId>([^<]+)</) || [])[1],
+      title: decode((e.match(/<title>([^<]*)</) || [])[1] || ''),
+      publishedAt: Date.parse((e.match(/<published>([^<]+)</) || [])[1]) || null,
+      views: Number((e.match(/<media:statistics views="(\d+)"/) || [])[1] ?? NaN),
+    })).filter((v) => v.videoId);
+  }
+
   // Overall call once uploads have been tracked.
   function uploadsDecision(uploads) {
     const judged = (uploads || []).map(uploadVerdict).filter((v) => v.key !== 'waiting');
@@ -240,6 +271,6 @@ var TVWarm = (() => {
     };
   }
 
-  return { CHECKPOINTS, SOURCES, DEFAULT_SETTINGS, subsTooFast, commentSig, latestCheck, uploadVerdict, uploadsDecision,
+  return { dayNumber, uploadsAccess, parseFeed, FORCE_DAY, AUTO_DAY, CHECKPOINTS, SOURCES, DEFAULT_SETTINGS, subsTooFast, commentSig, latestCheck, uploadVerdict, uploadsDecision,
     KEY, TARGETS, SETUP_ITEMS, dateKey, uid, emptyDay, load, save, getDay, totals, dayStatus, gmailAgeMonths, score };
 })();

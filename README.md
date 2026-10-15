@@ -34,10 +34,11 @@ Warm up a new channel for 7 days before your first upload. You get a 0–100 Tru
   - **In the tracker:** the same warnings show on that day's counts.
 - **Toolbar badge:** shows today's tasks done (e.g. 3/5), or ✓ when the day is complete.
 - **Daily reminder:** a notification at the time you choose (default 7 pm) if today isn't done.
-- **First uploads:** unlocks when a channel is 🟢.
-  - Paste a video link, or track the video open in your current tab.
-  - Check-ins at 8h, 24h, 48h and 72h. Views fill in automatically when possible; copy impressions, CTR and the top traffic source from YouTube Studio.
-  - Each video gets a verdict ("YouTube is pushing it" / "Not being pushed"), and the channel gets an overall call.
+- **First uploads:** shown from day 1 but locked.
+  - **Day 5:** you can unlock it early. **Day 7, or once the channel is 🟢:** it unlocks by itself.
+  - **Once unlocked:** TubeVault checks your channel's public feed every 30 minutes. It automatically tracks videos published since the warm-up started (up to 5) and fills in their views. **Refresh** checks right away.
+  - **Check-ins:** at 8h, 24h, 48h and 72h. Impressions, CTR and traffic source exist only in YouTube Studio: **Open in Studio** goes straight to the video's Reach tab.
+  - **Verdicts:** each video gets one ("YouTube is pushing it" / "Not being pushed"), and the channel gets an overall call.
 
 Full rules and scoring: `planning/warm-tracker-spec.md`.
 

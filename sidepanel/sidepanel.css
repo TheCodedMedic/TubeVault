@@ -32,7 +32,9 @@ body {
   flex-direction: column;
 }
 button { font: inherit; color: inherit; cursor: pointer; }
-input { font: inherit; color: inherit; }
+input, select, textarea { font: inherit; color: inherit; }
+/* Native controls (dropdowns, date/time pickers) follow light/dark mode */
+:root { color-scheme: light dark; }
 
 header {
   position: sticky;
