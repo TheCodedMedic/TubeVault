@@ -1,16 +1,18 @@
 {
   "manifest_version": 3,
   "name": "TubeVault",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Save YouTube channels into niche folders. Click + on any channel or video to save the channel.",
   "permissions": [
     "storage",
     "sidePanel",
     "alarms",
-    "notifications"
+    "notifications",
+    "scripting"
   ],
   "host_permissions": [
-    "https://www.youtube.com/*"
+    "https://www.youtube.com/*",
+    "https://studio.youtube.com/*"
   ],
   "background": {
     "service_worker": "background.js"

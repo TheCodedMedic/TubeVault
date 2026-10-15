@@ -42,11 +42,8 @@ function mutate(fn) {
 // Account unknown but signed in → the channel picked as "active" in the sidebar.
 function resolveChannel(data, account) {
   if (!account || !account.signedIn) return null;
-  if (account.handle || account.name) {
-    const h = (account.handle || '').toLowerCase();
-    const match = data.channels.find(
-      (c) => (h && (c.handle || '').toLowerCase() === h) || (!h && account.name && c.name === account.name)
-    );
+  if (account.ytChannelId || account.handle || account.name) {
+    const match = TVWarm.matchChannel(data.channels, account);
     return match ? match.id : null;
   }
   return data.activeId && data.channels.some((c) => c.id === data.activeId) ? data.activeId : null;
@@ -97,8 +94,24 @@ async function handle(msg) {
   const a = msg.account;
   switch (msg.type) {
     // --- from YouTube tabs ---
-    case 'warm:account':
-      return chrome.storage.local.set({ [LAST_ACCOUNT]: { ...a, at: Date.now() } });
+    case 'warm:account': {
+      // Fill in whatever is missing (name, @handle, picture) from the channel ID.
+      let acc = { ...a };
+      if (acc.ytChannelId && (!acc.name || !acc.handle || !acc.avatar)) {
+        const info = await lookupChannel(acc.ytChannelId);
+        if (info) acc = { ...acc, name: acc.name || info.name, handle: acc.handle || info.handle, avatar: acc.avatar || info.avatar };
+      }
+      // A tracked channel that matches but lacks details gets them filled in.
+      await mutate((data) => {
+        const c = TVWarm.matchChannel(data.channels, acc);
+        if (!c) return;
+        if (acc.ytChannelId && !c.ytChannelId) c.ytChannelId = acc.ytChannelId;
+        if (acc.handle && !c.handle) c.handle = acc.handle;
+        if (acc.avatar && !c.avatar) c.avatar = acc.avatar;
+      });
+      await chrome.storage.local.set({ [LAST_ACCOUNT]: { ...acc, at: Date.now() } });
+      return acc;
+    }
     case 'warm:watch':
       return addWatch(a, msg.from, msg.to);
     case 'warm:sub':
@@ -136,17 +149,18 @@ async function handle(msg) {
     case 'warm:addChannel':
       return mutate((data) => {
         const ch = msg.channel;
-        const handle = (ch.handle || '').toLowerCase();
-        if (handle && data.channels.some((c) => (c.handle || '').toLowerCase() === handle)) return null;
+        const existing = TVWarm.matchChannel(data.channels, ch);
+        if (existing && (ch.ytChannelId || ch.handle)) return existing.id;
         const channel = {
           id: TVWarm.uid(),
-          name: ch.name || 'New channel',
+          name: ch.name || ch.handle || 'New channel',
           handle: ch.handle || '',
+          ytChannelId: ch.ytChannelId || '',
           avatar: ch.avatar || '',
           gmailCreated: ch.gmailCreated || '',
           startDate: TVWarm.dateKey(),
           niche: '',
-          setup: {},
+          setup: { name: !!(ch.name && ch.ytChannelId) || !!ch.handle },
         };
         data.channels.push(channel);
         if (!data.activeId) data.activeId = channel.id;
@@ -307,6 +321,29 @@ async function checkUploads(force = false) {
       });
     }
   }
+}
+
+// ---------- Channel lookup by ID ----------
+
+// Public name, @handle and picture for a UC... channel ID.
+async function lookupChannel(ytId) {
+  const out = {};
+  try {
+    const html = await (await fetch(`https://www.youtube.com/channel/${ytId}?hl=en`, { credentials: 'include' })).text();
+    const meta = (p) => (html.match(new RegExp(`<meta property="og:${p}" content="([^"]*)"`)) || [])[1];
+    const decode = (t) => t && t.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+    out.name = decode(meta('title')) || '';
+    out.avatar = meta('image') || '';
+    out.handle = (html.match(/"vanityChannelUrl":"https?:\/\/www\.youtube\.com\/(@[^"]+)"/) || html.match(/"canonicalBaseUrl":"\/(@[^"]+)"/) || [])[1] || '';
+  } catch {}
+  if (!out.name) {
+    // Fallback: the channel feed's title is the channel name.
+    try {
+      const xml = await (await fetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${ytId}`)).text();
+      out.name = ((xml.match(/<title>([^<]*)<\/title>/) || [])[1] || '').replace(/&amp;/g, '&');
+    } catch {}
+  }
+  return out.name || out.handle ? out : null;
 }
 
 // ---------- Automatic upload tracking (channel feed) ----------

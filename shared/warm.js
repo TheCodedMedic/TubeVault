@@ -224,6 +224,18 @@ var TVWarm = (() => {
     return { key: 'waiting', label: 'Add the top traffic source to judge it' };
   }
 
+  // Finds the tracked channel for a signed-in account: by channel ID, then @handle, then name.
+  function matchChannel(channels, acc) {
+    if (!acc) return null;
+    const h = (acc.handle || '').toLowerCase();
+    return (
+      (acc.ytChannelId && channels.find((c) => c.ytChannelId === acc.ytChannelId)) ||
+      (h && channels.find((c) => (c.handle || '').toLowerCase() === h)) ||
+      (!h && !acc.ytChannelId && acc.name && channels.find((c) => c.name === acc.name)) ||
+      null
+    );
+  }
+
   // Day number of the warm-up (start date = day 1).
   function dayNumber(channel) {
     const start = new Date(channel.startDate + 'T00:00');
@@ -271,6 +283,6 @@ var TVWarm = (() => {
     };
   }
 
-  return { dayNumber, uploadsAccess, parseFeed, FORCE_DAY, AUTO_DAY, CHECKPOINTS, SOURCES, DEFAULT_SETTINGS, subsTooFast, commentSig, latestCheck, uploadVerdict, uploadsDecision,
+  return { matchChannel, dayNumber, uploadsAccess, parseFeed, FORCE_DAY, AUTO_DAY, CHECKPOINTS, SOURCES, DEFAULT_SETTINGS, subsTooFast, commentSig, latestCheck, uploadVerdict, uploadsDecision,
     KEY, TARGETS, SETUP_ITEMS, dateKey, uid, emptyDay, load, save, getDay, totals, dayStatus, gmailAgeMonths, score };
 })();

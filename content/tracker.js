@@ -56,6 +56,7 @@
           name: txt(sel.accountName),
           handle: txt(sel.channelHandle),
           avatar: sel.accountPhoto?.thumbnails?.slice(-1)[0]?.url || '',
+          ytChannelId: (JSON.stringify(sel).match(/UC[\w-]{22}/) || [])[0] || '',
         };
       }
     } catch {

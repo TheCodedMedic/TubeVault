@@ -61,9 +61,8 @@
   root.addEventListener('focusout', () => setTimeout(() => pendingRender && render(), 0));
 
   function trackedChannelFor(acc) {
-    if (!acc?.signedIn || !(acc.handle || acc.name)) return null;
-    const h = (acc.handle || '').toLowerCase();
-    return data.channels.find((c) => (h && (c.handle || '').toLowerCase() === h) || (!h && c.name === acc.name)) || null;
+    if (!acc?.signedIn) return null;
+    return TVWarm.matchChannel(data.channels, acc);
   }
 
   function accountBanner() {
@@ -71,18 +70,22 @@
     if (!fresh || !account.signedIn) {
       return `<div class="w-banner">Open YouTube while signed in to the channel you're warming. Activity is tracked automatically.</div>`;
     }
-    if (!account.handle && !account.name) {
+    if (!account.handle && !account.name && !account.ytChannelId) {
       const options = data.channels
         .map((c) => `<option value="${c.id}" ${c.id === data.activeId ? 'selected' : ''}>${esc(c.name)}</option>`)
         .join('');
       return `<div class="w-banner">Signed in on YouTube, but TubeVault couldn't read which channel.
         ${data.channels.length ? `Counting activity for: <select data-action="set-active">${options}</select>` : 'Add a channel below to start tracking.'}</div>`;
     }
-    const who = esc(account.handle || account.name);
+    const who = esc(account.name || account.handle);
+    const sub = account.name && account.handle ? `<span class="muted">${esc(account.handle)}</span>` : '';
     const tracked = trackedChannelFor(account);
-    if (tracked) return `<div class="w-banner ok">● Tracking <b>${who}</b> right now</div>`;
-    return `<div class="w-banner">Signed in on YouTube as <b>${who}</b>, which isn't in the Warm Tracker.
-      <button type="button" class="primary small" data-action="add-signed-in">+ Add ${who}</button></div>`;
+    const pic = avatar({ name: account.name || account.handle, avatar: account.avatar }, 32);
+    if (tracked) {
+      return `<div class="w-banner ok w-acct">${pic}<div>● Tracking <b>${who}</b> right now ${sub}</div></div>`;
+    }
+    return `<div class="w-banner w-acct">${pic}<div>Signed in as <b>${who}</b> ${sub}
+      <button type="button" class="primary small" data-action="add-signed-in">+ Add to Warm Tracker</button></div></div>`;
   }
 
   function listHtml() {
@@ -380,7 +383,7 @@
       adding = false;
       render();
     } else if (action === 'add-signed-in') {
-      const id = (await send({ type: 'warm:addChannel', channel: { name: account.name || account.handle, handle: account.handle, avatar: account.avatar } }))?.result;
+      const id = (await send({ type: 'warm:addChannel', channel: { name: account.name || account.handle, handle: account.handle, ytChannelId: account.ytChannelId, avatar: account.avatar } }))?.result;
       if (id) openId = id;
     } else if (action === 'pick-day') {
       selectedDate = el.dataset.date;
@@ -480,6 +483,40 @@
     adding = false;
     if (id) openId = id;
     render();
+  });
+
+  // ---------- Refresh: detect the signed-in channel on the current tab ----------
+
+  const detectBtn = document.getElementById('detect');
+  detectBtn.addEventListener('click', async () => {
+    detectBtn.classList.add('spin');
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.url || !/^https:\/\/(www|studio)\.youtube\.com\//.test(tab.url)) {
+        setTab('warm');
+        return flash('Open YouTube or YouTube Studio in this tab, then press ↻ again.');
+      }
+      const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: tvDetectAccount });
+      const acc = res?.result;
+      setTab('warm');
+      if (!acc || acc.error) return flash(acc?.error || "Couldn't read this page. Reload the tab and try again.");
+      const full = (await send({ type: 'warm:account', account: acc }))?.result || acc;
+      await refresh();
+      const tracked = trackedChannelFor(full);
+      if (tracked) {
+        openId = tracked.id;
+        render();
+        flash(`Signed in as ${full.name || full.handle}. Tracking this channel.`);
+      } else {
+        openId = null;
+        render();
+        flash(`Found ${full.name || full.handle} (from ${acc.source}).`);
+      }
+    } catch (e) {
+      flash("Couldn't read this tab. Reload it and press ↻ again.");
+    } finally {
+      detectBtn.classList.remove('spin');
+    }
   });
 
   // ---------- Boot ----------
