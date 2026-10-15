@@ -1,0 +1,231 @@
+// Warm Tracker: watches what you do on YouTube and reports it to the background worker,
+// which credits it to the channel you're signed in as.
+(() => {
+  const send = (msg) => chrome.runtime.sendMessage({ ...msg, account }).catch(() => null);
+
+  // Small on-page notice for warm-up warnings (subscribing too fast, copy-paste comments).
+  const toastHost = document.createElement('tubevault-toast');
+  const toastRoot = toastHost.attachShadow({ mode: 'open' });
+  toastRoot.innerHTML = `<style>
+    .t { position: fixed; left: 20px; bottom: 20px; z-index: 2147483000; max-width: 340px; padding: 12px 14px;
+         border-radius: 12px; background: #212121; color: #fff; font: 14px/1.4 Roboto, Arial, sans-serif;
+         box-shadow: 0 6px 24px rgba(0,0,0,.35); border-left: 4px solid #ff0033; opacity: 0; transform: translateY(8px);
+         transition: opacity .2s, transform .2s; pointer-events: none; }
+    .t.show { opacity: 1; transform: none; }
+    b { color: #ff7a8a; }
+  </style><div class="t"></div>`;
+  const toastEl = toastRoot.querySelector('.t');
+  let toastTimer;
+  function toast(html) {
+    if (!toastHost.isConnected) document.documentElement.append(toastHost);
+    toastEl.innerHTML = `<b>TubeVault</b> · ${html}`;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 6000);
+  }
+
+  // ---------- Who is signed in ----------
+
+  let account = null; // { signedIn, handle, name, avatar }
+
+  const isSignedIn = () =>
+    !!document.querySelector('ytd-topbar-menu-button-renderer #avatar-btn, button#avatar-btn') &&
+    !document.querySelector('ytd-masthead a[href*="ServiceLogin"]');
+
+  // Finds the selected account in YouTube's account switcher data.
+  function findSelected(node) {
+    if (!node || typeof node !== 'object') return null;
+    if (node.isSelected === true && (node.accountName || node.channelHandle)) return node;
+    for (const v of Object.values(node)) {
+      const hit = findSelected(v);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  const txt = (t) => (typeof t === 'string' ? t : t?.simpleText || t?.runs?.map((r) => r.text).join('') || '');
+
+  async function detectAccount(retries = 3) {
+    let found = null;
+    try {
+      const res = await fetch('/getAccountSwitcherEndpoint', { credentials: 'include' });
+      const body = (await res.text()).replace(/^\)\]\}'\s*/, '');
+      const sel = findSelected(JSON.parse(body));
+      if (sel) {
+        found = {
+          signedIn: true,
+          name: txt(sel.accountName),
+          handle: txt(sel.channelHandle),
+          avatar: sel.accountPhoto?.thumbnails?.slice(-1)[0]?.url || '',
+        };
+      }
+    } catch {
+      // Endpoint changed or blocked: fall back to "signed in, unknown account".
+    }
+    if (!found && !isSignedIn()) {
+      // The top bar may not have rendered yet on first load.
+      if (retries > 0) {
+        await new Promise((r) => setTimeout(r, 3000));
+        return detectAccount(retries - 1);
+      }
+      account = { signedIn: false };
+      return account;
+    }
+    account = found || { signedIn: true };
+    send({ type: 'warm:account' });
+    return account;
+  }
+
+  // Re-check every few minutes and on navigation, in case the user switches account.
+  let lastDetect = 0;
+  const refreshAccount = () => {
+    if (Date.now() - lastDetect < 60 * 1000) return;
+    lastDetect = Date.now();
+    detectAccount();
+  };
+
+  // ---------- Watch time ----------
+  // Every few seconds, report the interval during which a video was really playing (no ads).
+  // The background merges intervals from all tabs, so overlapping videos count once.
+
+  let lastTick = null;
+  const playing = () => {
+    const v = document.querySelector('video');
+    const player = v?.closest('.html5-video-player');
+    return !!v && !v.paused && !v.ended && v.readyState > 2 && !player?.classList.contains('ad-showing');
+  };
+
+  function tick() {
+    const now = Date.now();
+    if (playing() && account?.signedIn) {
+      if (lastTick) send({ type: 'warm:watch', from: lastTick, to: now });
+      lastTick = now;
+    } else {
+      lastTick = null;
+    }
+  }
+  setInterval(tick, 5000);
+  // Close the interval right when playback stops, so the last seconds aren't lost.
+  document.addEventListener('pause', () => {
+    if (lastTick && account?.signedIn) send({ type: 'warm:watch', from: lastTick, to: Date.now() });
+    lastTick = null;
+  }, true);
+  document.addEventListener('playing', () => { if (!lastTick) lastTick = Date.now(); }, true);
+
+  // ---------- Subscribe / like / comment clicks ----------
+
+  // The channel a subscribe button belongs to.
+  function channelFor(btn) {
+    const box = btn.closest('ytd-channel-renderer, ytd-video-owner-renderer, #owner, ytd-reel-video-renderer, yt-page-header-renderer, #page-header, ytd-c4-tabbed-header-renderer');
+    const link = box?.querySelector('a[href^="/@"], a[href^="/channel/"]');
+    let href = link?.getAttribute('href');
+    let name = (box?.querySelector('ytd-channel-name a, #channel-name #text, h1, #text')?.textContent || '').trim();
+    if (!href && /^\/(@|channel\/)/.test(location.pathname)) href = location.pathname;
+    const norm = href && TVStore.normalizeChannelPath(href);
+    return norm ? { key: norm.id, name: name || norm.url.split('/').pop() } : null;
+  }
+
+  const subState = (btn) => {
+    const host = btn.closest('ytd-subscribe-button-renderer');
+    if (host?.hasAttribute('subscribed')) return true;
+    const label = `${btn.getAttribute('aria-label') || ''} ${btn.textContent || ''}`.toLowerCase();
+    return /unsubscribe|subscribed/.test(label);
+  };
+
+  const pressed = (btn) => btn.getAttribute('aria-pressed') === 'true';
+
+  const videoId = () => {
+    const u = new URL(location.href);
+    return u.searchParams.get('v') || (location.pathname.match(/^\/shorts\/([\w-]+)/) || [])[1] || null;
+  };
+
+  // After a click, wait for YouTube to update the button, then report the real state.
+  function after(ms, fn) {
+    setTimeout(fn, ms);
+  }
+
+  document.addEventListener(
+    'click',
+    (e) => {
+      if (!account?.signedIn) return;
+      const target = e.target;
+
+      // Subscribe / unsubscribe (also the "Unsubscribe" confirm dialog).
+      const subBtn = target.closest('ytd-subscribe-button-renderer button, yt-subscribe-button-view-model button');
+      if (subBtn) {
+        const before = subState(subBtn);
+        const ch = channelFor(subBtn);
+        if (ch) {
+          after(1500, () => {
+            const now = subState(subBtn);
+            if (now === before) return;
+            send({ type: 'warm:sub', key: ch.key, name: ch.name, subscribed: now }).then((r) => {
+              const res = r?.result;
+              if (!res || !now) return;
+              if (res.over) toast(`That's ${res.subs} subscribes today. Keep it to <b>5 max</b> per day.`);
+              else if (res.tooFast) toast(`You subscribed to several channels in under 2 minutes. <b>Slow down</b>: spread subscribes across your watching session.`);
+            });
+          });
+          lastSubTarget = { btn: subBtn, ch, at: Date.now() };
+        }
+        return;
+      }
+      if (target.closest('yt-confirm-dialog-renderer #confirm-button, yt-dialog-view-model button') && lastSubTarget && Date.now() - lastSubTarget.at < 30000) {
+        const { btn, ch } = lastSubTarget;
+        after(1500, () => {
+          if (!subState(btn)) send({ type: 'warm:sub', key: ch.key, name: ch.name, subscribed: false });
+        });
+        return;
+      }
+
+      // Like (not dislike).
+      const likeBtn = target.closest('like-button-view-model button, #like-button button, ytd-toggle-button-renderer#like-button button');
+      if (likeBtn) {
+        const id = videoId();
+        if (!id) return;
+        after(800, () => send({ type: 'warm:like', videoId: id, liked: pressed(likeBtn) }));
+        return;
+      }
+
+      // Posting a comment or reply.
+      const submit = target.closest('ytd-commentbox #submit-button, ytd-commentbox ytd-button-renderer#submit-button');
+      if (submit) {
+        const box = submit.closest('ytd-commentbox');
+        const text = (box?.querySelector('#contenteditable-root')?.innerText || '').trim();
+        if (!text) return;
+        const words = text.split(/\s+/).filter(Boolean).length;
+        send({ type: 'warm:comment', words, sig: TVWarm.commentSig(text) }).then((r) => {
+          const res = r?.result;
+          if (res?.dup) toast(`You've posted this <b>same comment before</b>. Copy-paste comments don't count. Write something specific to this video.`);
+          else if (res?.short) toast(`Short comment: under ${TVWarm.TARGETS.minCommentWords} words doesn't count. Write a <b>full sentence</b>.`);
+        });
+      }
+    },
+    true
+  );
+  let lastSubTarget = null;
+
+  // ---------- Searches ----------
+
+  function checkSearch() {
+    if (location.pathname !== '/results') return;
+    const q = new URL(location.href).searchParams.get('search_query');
+    if (q && account?.signedIn) send({ type: 'warm:search', query: q.trim().toLowerCase() });
+  }
+
+  // The sidebar's First Upload Tracker asks for the video on screen.
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg?.type !== 'tubevault:getVideo') return;
+    const id = videoId();
+    const title = (document.querySelector('ytd-watch-metadata h1, h1.ytd-watch-metadata')?.textContent || document.title.replace(/ - YouTube$/, '')).trim();
+    sendResponse(id ? { videoId: id, title } : null);
+  });
+
+  // ---------- Boot ----------
+
+  window.addEventListener('yt-navigate-finish', () => {
+    refreshAccount();
+    checkSearch();
+  });
+  detectAccount().then(checkSearch);
+  setInterval(refreshAccount, 5 * 60 * 1000);
+})();

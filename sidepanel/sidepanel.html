@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>TubeVault</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+  <link rel="stylesheet" href="warm.css" />
+</head>
+<body data-tab="vault">
+  <header>
+    <div class="brand">
+      <img src="../icons/icon32.png" alt="" width="22" height="22" />
+      <h1>TubeVault</h1>
+      <span id="total" class="muted" data-tab-only="vault"></span>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button type="button" role="tab" data-tab-btn="vault">Vault</button>
+      <button type="button" role="tab" data-tab-btn="warm">Warm Tracker</button>
+    </nav>
+    <div class="vault-controls" data-tab-only="vault">
+      <div class="search-row">
+        <input id="search" type="search" placeholder="Search channels…" />
+        <div class="view-switch" role="group" aria-label="Layout">
+          <button type="button" data-view="list" title="List view">☰</button>
+          <button type="button" data-view="grid" title="Pills view">▦</button>
+          <button type="button" data-view="icons" title="Icons only">◉</button>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="add-current" class="primary" type="button">+ Add current channel</button>
+        <button id="new-folder" type="button">New folder</button>
+      </div>
+      <form id="folder-form" hidden>
+        <input id="folder-name" placeholder="Folder name (e.g. Finance, Gaming)" />
+        <button type="submit" class="primary">Create</button>
+      </form>
+      <div id="toast" class="toast" hidden></div>
+    </div>
+  </header>
+
+  <main id="folders" data-tab-only="vault"></main>
+  <main id="warm" data-tab-only="warm"></main>
+
+  <footer data-tab-only="vault">
+    <button id="export" type="button" class="link">Export backup</button>
+    <button id="import" type="button" class="link">Import</button>
+    <input id="import-file" type="file" accept="application/json" hidden />
+  </footer>
+
+  <script src="../shared/store.js"></script>
+  <script src="../shared/warm.js"></script>
+  <script src="sidepanel.js"></script>
+  <script src="warm.js"></script>
+</body>
+</html>

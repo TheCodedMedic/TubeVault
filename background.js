@@ -1,0 +1,379 @@
+importScripts('shared/warm.js');
+
+// Clicking the toolbar icon opens the side panel.
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
+  setupAlarms();
+});
+chrome.runtime.onStartup.addListener(() => {
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
+  setupAlarms();
+});
+
+// ---------- Device identity (for the "same device" check) ----------
+
+const DEVICE_KEY = 'tubevault:device';
+async function getDevice() {
+  const res = await chrome.storage.local.get(DEVICE_KEY);
+  if (res[DEVICE_KEY]) return res[DEVICE_KEY];
+  const platform = navigator.userAgentData?.platform || 'Computer';
+  const device = { id: TVWarm.uid(), label: `${platform} · ${Math.random().toString(36).slice(2, 6)}` };
+  await chrome.storage.local.set({ [DEVICE_KEY]: device });
+  return device;
+}
+
+// ---------- Write queue: every Warm Tracker change runs one at a time ----------
+
+let queue = Promise.resolve();
+function mutate(fn) {
+  const run = queue.then(async () => {
+    const data = await TVWarm.load();
+    const result = await fn(data);
+    await TVWarm.save(data);
+    updateBadge(data);
+    return result;
+  });
+  queue = run.catch((e) => console.error('[TubeVault]', e));
+  return run;
+}
+
+// Which tracked channel gets credit for activity from this YouTube account.
+// Detected account → matching channel (or nothing if it isn't tracked).
+// Account unknown but signed in → the channel picked as "active" in the sidebar.
+function resolveChannel(data, account) {
+  if (!account || !account.signedIn) return null;
+  if (account.handle || account.name) {
+    const h = (account.handle || '').toLowerCase();
+    const match = data.channels.find(
+      (c) => (h && (c.handle || '').toLowerCase() === h) || (!h && account.name && c.name === account.name)
+    );
+    return match ? match.id : null;
+  }
+  return data.activeId && data.channels.some((c) => c.id === data.activeId) ? data.activeId : null;
+}
+
+async function withDay(account, fn) {
+  const device = await getDevice();
+  return mutate((data) => {
+    const id = resolveChannel(data, account);
+    if (!id) return false;
+    const day = TVWarm.getDay(data, id, TVWarm.dateKey());
+    day.devices[device.id] = 1;
+    const result = fn(day, data, id);
+    return result === undefined ? true : result;
+  });
+}
+
+// ---------- Watch clock ----------
+// Tabs report playing intervals [from, to]. Per channel we only count time past `coveredUntil`,
+// so two videos playing at once count once (clock time, not added up).
+const coveredUntil = {};
+const MAX_GAP_MS = 90 * 1000; // background tabs may tick as slowly as once a minute
+
+function addWatch(account, from, to) {
+  if (!(to > from) || to - from > MAX_GAP_MS || to > Date.now() + 5000) return Promise.resolve(false);
+  return withDay(account, (day, data, id) => {
+    const start = Math.max(from, coveredUntil[id] || 0);
+    if (to > start) {
+      day.watchSec = Math.round((day.watchSec + (to - start) / 1000) * 10) / 10;
+      coveredUntil[id] = to;
+    }
+  });
+}
+
+// ---------- Messages ----------
+
+const LAST_ACCOUNT = 'tubevault:lastAccount';
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (!msg || typeof msg.type !== 'string' || !msg.type.startsWith('warm:')) return;
+  handle(msg)
+    .then((r) => sendResponse({ ok: true, result: r }))
+    .catch((e) => sendResponse({ ok: false, error: String(e) }));
+  return true; // async response
+});
+
+async function handle(msg) {
+  const a = msg.account;
+  switch (msg.type) {
+    // --- from YouTube tabs ---
+    case 'warm:account':
+      return chrome.storage.local.set({ [LAST_ACCOUNT]: { ...a, at: Date.now() } });
+    case 'warm:watch':
+      return addWatch(a, msg.from, msg.to);
+    case 'warm:sub':
+      return withDay(a, (day) => {
+        day.subsAt = day.subsAt || {};
+        if (msg.subscribed) {
+          day.subs[msg.key] = msg.name || msg.key;
+          day.subsAt[msg.key] = Date.now();
+        } else {
+          delete day.subs[msg.key];
+          delete day.subsAt[msg.key];
+        }
+        // Feedback shown on the YouTube page.
+        const st = TVWarm.dayStatus(day);
+        return { subs: st.totals.subs, tooFast: msg.subscribed && st.tooFast, over: st.subsOver };
+      });
+    case 'warm:like':
+      return withDay(a, (day) => {
+        if (msg.liked) day.likes[msg.videoId] = 1;
+        else delete day.likes[msg.videoId];
+      });
+    case 'warm:comment':
+      return withDay(a, (day, data, id) => {
+        // Same text already posted on this channel (any day) = copy-paste.
+        const dup = !!msg.sig && Object.values(data.days[id] || {}).some((d) => d.comments.some((c) => c.sig === msg.sig));
+        day.comments.push({ at: Date.now(), words: msg.words, sig: msg.sig, dup });
+        return { dup, short: msg.words < TVWarm.TARGETS.minCommentWords };
+      });
+    case 'warm:search':
+      return withDay(a, (day) => {
+        if (!day.searches.includes(msg.query)) day.searches.push(msg.query);
+      });
+
+    // --- from the side panel ---
+    case 'warm:addChannel':
+      return mutate((data) => {
+        const ch = msg.channel;
+        const handle = (ch.handle || '').toLowerCase();
+        if (handle && data.channels.some((c) => (c.handle || '').toLowerCase() === handle)) return null;
+        const channel = {
+          id: TVWarm.uid(),
+          name: ch.name || 'New channel',
+          handle: ch.handle || '',
+          avatar: ch.avatar || '',
+          gmailCreated: ch.gmailCreated || '',
+          startDate: TVWarm.dateKey(),
+          niche: '',
+          setup: {},
+        };
+        data.channels.push(channel);
+        if (!data.activeId) data.activeId = channel.id;
+        return channel.id;
+      });
+    case 'warm:updateChannel':
+      return mutate((data) => {
+        const c = data.channels.find((x) => x.id === msg.id);
+        if (!c) return;
+        const { setup, ...rest } = msg.patch;
+        Object.assign(c, rest);
+        if (setup) c.setup = { ...c.setup, ...setup };
+      });
+    case 'warm:deleteChannel':
+      return mutate((data) => {
+        data.channels = data.channels.filter((c) => c.id !== msg.id);
+        delete data.days[msg.id];
+        if (data.activeId === msg.id) data.activeId = data.channels[0]?.id || null;
+      });
+    case 'warm:setActive':
+      return mutate((data) => {
+        data.activeId = msg.id;
+      });
+    case 'warm:adjust': // manual +/- on a day's counter
+      return mutate((data) => {
+        const day = TVWarm.getDay(data, msg.id, msg.date);
+        day.adj = day.adj || {};
+        day.adj[msg.field] = (day.adj[msg.field] || 0) + msg.delta;
+        // Never let the adjusted total go below zero.
+        const t = TVWarm.totals(day);
+        const shown = msg.field === 'watchMin' ? t.watchSec / 60 : t[msg.field];
+        if (shown <= 0) {
+          const auto = TVWarm.totals({ ...day, adj: { ...day.adj, [msg.field]: 0 } });
+          day.adj[msg.field] = -(msg.field === 'watchMin' ? auto.watchSec / 60 : auto[msg.field]);
+        }
+      });
+    case 'warm:setWatch': // slider: set the day's total watch time, keeping auto-tracked time underneath
+      return mutate((data) => {
+        const day = TVWarm.getDay(data, msg.id, msg.date);
+        day.adj = day.adj || {};
+        day.adj.watchMin = Math.max(0, msg.minutes) - day.watchSec / 60;
+      });
+    case 'warm:settings':
+      await mutate((data) => {
+        data.settings = { ...data.settings, ...msg.patch };
+      });
+      return setupAlarms();
+
+    // --- First Upload Tracker ---
+    case 'warm:addUpload': {
+      const info = await fetchVideo(msg.videoId);
+      return mutate((data) => {
+        const c = data.channels.find((x) => x.id === msg.id);
+        if (!c) return null;
+        c.uploads = c.uploads || [];
+        if (c.uploads.some((u) => u.videoId === msg.videoId)) return null;
+        const upload = {
+          id: TVWarm.uid(),
+          videoId: msg.videoId,
+          title: info?.title || msg.title || msg.videoId,
+          publishedAt: info?.publishedAt || Date.now(),
+          collab: false,
+          checks: {},
+          lastViews: info?.views ?? null,
+        };
+        c.uploads.push(upload);
+        return upload.id;
+      });
+    }
+    case 'warm:updateUpload':
+      return mutate((data) => {
+        const u = findUpload(data, msg.id, msg.uploadId);
+        if (u) Object.assign(u, msg.patch);
+      });
+    case 'warm:setCheck':
+      return mutate((data) => {
+        const u = findUpload(data, msg.id, msg.uploadId);
+        if (!u) return;
+        u.checks = u.checks || {};
+        u.checks[msg.hours] = { ...(u.checks[msg.hours] || {}), ...msg.patch };
+      });
+    case 'warm:deleteUpload':
+      return mutate((data) => {
+        const c = data.channels.find((x) => x.id === msg.id);
+        if (c) c.uploads = (c.uploads || []).filter((u) => u.id !== msg.uploadId);
+      });
+    case 'warm:refreshViews':
+      return checkUploads(true);
+    case 'warm:device':
+      return getDevice();
+  }
+}
+
+// ---------- First Upload Tracker: video info + automatic check-ins ----------
+
+function findUpload(data, channelId, uploadId) {
+  return data.channels.find((c) => c.id === channelId)?.uploads?.find((u) => u.id === uploadId) || null;
+}
+
+// Reads public info (title, views, publish date) from the video's page. Returns null if blocked.
+async function fetchVideo(videoId) {
+  try {
+    const res = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en`, { credentials: 'include' });
+    const html = await res.text();
+    const details = html.match(/"videoDetails":\{"videoId":"[^"]+","title":"((?:[^"\\]|\\.)*)"/);
+    const views = html.match(/"videoDetails":\{.*?"viewCount":"(\d+)"/s);
+    const published = html.match(/"(?:publishDate|uploadDate)":"([^"]+)"/);
+    if (!details && !views) return null;
+    return {
+      title: details ? JSON.parse(`"${details[1]}"`) : null,
+      views: views ? Number(views[1]) : null,
+      publishedAt: published ? Date.parse(published[1]) || null : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Fills in views for check-ins that are due, and sends one notification per video for the latest one.
+async function checkUploads(force = false) {
+  const data = await TVWarm.load();
+  for (const c of data.channels) {
+    for (const u of c.uploads || []) {
+      const ageH = (Date.now() - u.publishedAt) / 3600000;
+      const due = TVWarm.CHECKPOINTS.filter((h) => ageH >= h && !u.checks?.[h]?.notified);
+      if (!due.length && !force) continue;
+      if (ageH > 80 && !force && !due.length) continue;
+      const info = await fetchVideo(u.videoId);
+      await mutate((d) => {
+        const up = findUpload(d, c.id, u.id);
+        if (!up) return;
+        if (info?.views != null) up.lastViews = info.views;
+        up.checks = up.checks || {};
+        for (const h of due) {
+          const check = (up.checks[h] = up.checks[h] || {});
+          if (info?.views != null && check.views == null) {
+            check.views = info.views;
+            check.autoViews = true;
+          }
+          check.notified = true;
+        }
+        if (!due.length) return;
+        const h = due[due.length - 1];
+        chrome.notifications.create(`upload-${up.id}-${h}`, {
+          type: 'basic',
+          iconUrl: 'icons/icon128.png',
+          title: `${h}h check-in: ${up.title}`,
+          message: 'Open YouTube Studio → Analytics → Reach and add impressions, CTR and the top traffic source in TubeVault.',
+        });
+      });
+    }
+  }
+}
+
+// ---------- Toolbar badge: today's progress for the channel being warmed ----------
+
+async function updateBadge(data) {
+  data = data || (await TVWarm.load());
+  const acc = (await chrome.storage.local.get(LAST_ACCOUNT))[LAST_ACCOUNT];
+  const id = resolveChannel(data, acc) || data.activeId;
+  const channel = data.channels.find((c) => c.id === id);
+  if (!channel) return chrome.action.setBadgeText({ text: '' });
+  const st = TVWarm.dayStatus(data.days[id]?.[TVWarm.dateKey()] || TVWarm.emptyDay());
+  const done = st.done && st.tasks === 5;
+  chrome.action.setBadgeText({ text: done ? '✓' : `${st.tasks}/5` });
+  chrome.action.setBadgeBackgroundColor({ color: done ? '#1e9e4a' : st.done ? '#d79b00' : '#e5243b' });
+  chrome.action.setTitle({ title: `TubeVault: ${channel.name}, ${st.tasks}/5 warm-up tasks done today` });
+}
+
+// ---------- Alarms: daily reminder + periodic checks ----------
+
+async function setupAlarms() {
+  const { settings } = await TVWarm.load();
+  await chrome.alarms.clear('warm-reminder');
+  if (settings.reminder) {
+    const [h, m] = (settings.reminderTime || '19:00').split(':').map(Number);
+    const next = new Date();
+    next.setHours(h, m, 0, 0);
+    if (next <= new Date()) next.setDate(next.getDate() + 1);
+    chrome.alarms.create('warm-reminder', { when: next.getTime(), periodInMinutes: 24 * 60 });
+  }
+  chrome.alarms.create('warm-tick', { periodInMinutes: 30 });
+  updateBadge();
+}
+
+async function sendReminder() {
+  const data = await TVWarm.load();
+  const lines = [];
+  for (const c of data.channels) {
+    const s = TVWarm.score(data, c);
+    if (s.doneDays >= TVWarm.TARGETS.days) continue; // finished warming
+    const st = TVWarm.dayStatus(data.days[c.id]?.[TVWarm.dateKey()] || TVWarm.emptyDay());
+    if (st.done) continue;
+    const t = st.totals;
+    const left = [];
+    const mins = Math.ceil((TVWarm.TARGETS.watchSec - t.watchSec) / 60);
+    if (mins > 0) left.push(`${mins} min watching`);
+    const n = (k, word) => `${k} ${word}${k === 1 ? '' : 's'}`;
+    if (t.subs < TVWarm.TARGETS.subsMin) left.push(n(TVWarm.TARGETS.subsMin - t.subs, 'subscribe'));
+    if (t.comments < TVWarm.TARGETS.commentsMin) left.push(n(TVWarm.TARGETS.commentsMin - t.comments, 'comment'));
+    lines.push(`${c.name}: ${left.join(', ')} left`);
+  }
+  if (!lines.length) return;
+  chrome.notifications.create(`reminder-${TVWarm.dateKey()}`, {
+    type: 'basic',
+    iconUrl: 'icons/icon128.png',
+    title: 'Warm-up not done yet today',
+    message: lines.join('\n'),
+  });
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'warm-reminder') sendReminder();
+  if (alarm.name === 'warm-tick') {
+    updateBadge(); // also rolls the badge over at midnight
+    checkUploads();
+  }
+});
+
+// Clicking a notification opens YouTube (the side panel can only be opened from a click on the icon).
+chrome.notifications.onClicked.addListener((id) => {
+  chrome.notifications.clear(id);
+  if (id.startsWith('upload-')) chrome.tabs.create({ url: 'https://studio.youtube.com/' });
+  else chrome.tabs.create({ url: 'https://www.youtube.com/' });
+});
+
+// Badge follows the signed-in account.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes[LAST_ACCOUNT]) updateBadge();
+});
