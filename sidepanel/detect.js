@@ -101,3 +101,12 @@ async function tvDetectAccount() {
 
   return { signedIn: true, avatar: topAvatar, error: "Signed in, but couldn't read the channel name. Try from YouTube Studio." };
 }
+
+// When loaded as a content script (YouTube / Studio pages), answer the sidebar's refresh button.
+if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage && /(^|\.)youtube\.com$/.test(location.hostname)) {
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg?.type !== 'tubevault:detect') return;
+    tvDetectAccount().then(sendResponse, (e) => sendResponse({ error: String(e) }));
+    return true;
+  });
+}

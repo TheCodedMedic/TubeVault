@@ -488,32 +488,67 @@
   // ---------- Refresh: detect the signed-in channel on the current tab ----------
 
   const detectBtn = document.getElementById('detect');
+  const ORIGINS = ['https://www.youtube.com/*', 'https://studio.youtube.com/*'];
+
+  // Runs the detector in the tab. Tries chrome.scripting first (works on tabs opened before a reload),
+  // then the content script already on the page.
+  async function detectInTab(tab) {
+    let lastError = '';
+    if (chrome.scripting?.executeScript) {
+      try {
+        const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: tvDetectAccount });
+        if (res?.result) return { ...res.result, page: true };
+      } catch (e) {
+        lastError = e?.message || String(e);
+      }
+    } else {
+      lastError = 'scripting permission missing';
+    }
+    try {
+      const r = await chrome.tabs.sendMessage(tab.id, { type: 'tubevault:detect' });
+      if (r) return { ...r, page: true };
+    } catch (e) {
+      lastError = lastError || e?.message || String(e);
+    }
+    return { error: lastError };
+  }
+
+  function explain(err, url) {
+    const e = String(err || '');
+    if (/permission|Cannot access|host/i.test(e)) {
+      return 'TubeVault needs updated access. Open chrome://extensions and click reload ↻ on TubeVault, then reload this YouTube tab.';
+    }
+    if (/Receiving end does not exist|Could not establish connection/i.test(e)) {
+      return 'Reload this YouTube tab once (TubeVault was updated after it opened), then press ↻ again.';
+    }
+    if (url && !/^https:\/\/(www|studio)\.youtube\.com\//.test(url)) return 'Open YouTube or YouTube Studio in this tab, then press ↻ again.';
+    return e ? `Couldn't read this tab (${e}). Reload it and press ↻ again.` : "Couldn't read this tab. Reload it and press ↻ again.";
+  }
+
   detectBtn.addEventListener('click', async () => {
     detectBtn.classList.add('spin');
+    setTab('warm');
     try {
+      // Make sure we have access to YouTube + Studio (asks once if Chrome hasn't granted it yet).
+      const has = await chrome.permissions.contains({ origins: ORIGINS }).catch(() => true);
+      if (!has) await chrome.permissions.request({ origins: ORIGINS }).catch(() => {});
+
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab?.url || !/^https:\/\/(www|studio)\.youtube\.com\//.test(tab.url)) {
-        setTab('warm');
-        return flash('Open YouTube or YouTube Studio in this tab, then press ↻ again.');
-      }
-      const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: tvDetectAccount });
-      const acc = res?.result;
-      setTab('warm');
-      if (!acc || acc.error) return flash(acc?.error || "Couldn't read this page. Reload the tab and try again.");
+      if (!tab) return flash('No tab found.');
+      // tab.url is only visible for sites TubeVault can access; if it's visible and not YouTube, say so.
+      if (tab.url && !/^https:\/\/(www|studio)\.youtube\.com\//.test(tab.url)) return flash(explain('', tab.url));
+
+      const acc = await detectInTab(tab);
+      if (!acc || acc.error) return flash(acc?.page ? acc.error || "Couldn't read the channel. Reload the tab and try again." : explain(acc?.error, tab.url));
+
       const full = (await send({ type: 'warm:account', account: acc }))?.result || acc;
       await refresh();
       const tracked = trackedChannelFor(full);
-      if (tracked) {
-        openId = tracked.id;
-        render();
-        flash(`Signed in as ${full.name || full.handle}. Tracking this channel.`);
-      } else {
-        openId = null;
-        render();
-        flash(`Found ${full.name || full.handle} (from ${acc.source}).`);
-      }
+      openId = tracked ? tracked.id : null;
+      render();
+      flash(tracked ? `Signed in as ${full.name || full.handle}. Tracking this channel.` : `Found ${full.name || full.handle} (from ${acc.source}).`);
     } catch (e) {
-      flash("Couldn't read this tab. Reload it and press ↻ again.");
+      flash(explain(e?.message || e));
     } finally {
       detectBtn.classList.remove('spin');
     }
