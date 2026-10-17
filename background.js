@@ -140,6 +140,13 @@ async function handle(msg) {
         day.comments.push({ at: Date.now(), words: msg.words, sig: msg.sig, dup });
         return { dup, short: msg.words < TVWarm.TARGETS.minCommentWords };
       });
+    case 'warm:vidiq': // VidIQ seen on YouTube while signed in to this channel
+      return mutate((data) => {
+        const id = resolveChannel(data, a);
+        const c = data.channels.find((x) => x.id === id);
+        if (c && !c.setup?.vidiq) c.setup = { ...c.setup, vidiq: true };
+        return !!c;
+      });
     case 'warm:search':
       return withDay(a, (day) => {
         if (!day.searches.includes(msg.query)) day.searches.push(msg.query);

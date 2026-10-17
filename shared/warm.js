@@ -24,7 +24,7 @@ var TVWarm = (() => {
     commentsTarget: 3,
     likesMin: 5,
     likesTarget: 10,
-    searchesMin: 1,
+    searchesMin: 4, // different searches a day
     days: 7,
     minCommentWords: 6, // shorter comments are flagged and don't count
     fastSubs: 3, // this many subscribes...
@@ -48,12 +48,13 @@ var TVWarm = (() => {
   const SETUP_ITEMS = [
     { key: 'niche', label: 'Picked a niche I actually watch', points: 1 },
     { key: 'twoStep', label: '2-step verification on the Gmail', points: 5, must: true },
-    { key: 'name', label: 'Channel name set', points: 2 },
+    { key: 'name', label: 'Channel name set', points: 1 },
     { key: 'pic', label: 'Profile picture set', points: 2 },
     { key: 'phone', label: 'Phone number verified', points: 5, must: true, hint: 'Studio → Settings → Channel → Feature eligibility' },
     { key: 'features', label: 'Intermediate + advanced features on', points: 2, hint: 'Studio → Settings → Channel → Feature eligibility' },
     { key: 'madeForKids', label: '"Made for Kids" set to No', points: 2, hint: 'Studio → Settings → Channel → Advanced settings' },
     { key: 'idVerified', label: 'ID verification (if you can)', points: 1 },
+    { key: 'vidiq', label: 'VidIQ extension connected to this channel', points: 1, hint: 'Ticks itself when TubeVault sees VidIQ running on YouTube' },
   ];
 
   const pad = (n) => String(n).padStart(2, '0');
@@ -122,7 +123,7 @@ var TVWarm = (() => {
       subs: subsOver ? 0 : Math.min(t.subs / TARGETS.subsMin, 1) * 2,
       comments: Math.min(t.comments / TARGETS.commentsMin, 1) * 1.5,
       likes: Math.min(t.likes / TARGETS.likesMin, 1) * 1,
-      search: t.searches >= TARGETS.searchesMin ? 0.5 : 0,
+      search: Math.min(t.searches / TARGETS.searchesMin, 1) * 0.5,
     };
     const points = Object.values(parts).reduce((a, b) => a + b, 0);
     const done =

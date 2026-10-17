@@ -344,7 +344,7 @@
           (t.shortComments ? `<div class="w-warn">${t.shortComments} comment${t.shortComments === 1 ? ' was' : 's were'} too short (under ${T.minCommentWords} words), not counted.</div>` : '') +
           (t.dupComments ? `<div class="w-warn">${t.dupComments} copy-pasted comment${t.dupComments === 1 ? '' : 's'} (same text as before), not counted.</div>` : ''))}
         ${counter('likes', 'Like videos you watched', t.likes, T.likesMin, `${t.likes} / ${T.likesMin}–${T.likesTarget}`)}
-        ${counter('searches', 'Search your niche', t.searches, T.searchesMin, `${t.searches} / 1`,
+        ${counter('searches', 'Search on YouTube (different searches)', t.searches, T.searchesMin, `${t.searches} / ${T.searchesMin}+`,
           day.searches.length ? `<div class="w-names">${day.searches.map((q) => `<span>🔍 ${esc(q)}</span>`).join('')}</div>` : '')}
         <div class="w-device muted">Device: ${deviceText} · Same device ${s.devices.sameDays}/${T.days} days</div>
       </div>

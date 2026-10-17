@@ -221,6 +221,20 @@
     sendResponse(id ? { videoId: id, title } : null);
   });
 
+  // ---------- VidIQ ----------
+  // VidIQ injects its own panels into YouTube pages. If we see them while signed in, the
+  // setup item "VidIQ extension connected" is ticked for this channel.
+  let vidiqReported = false;
+  function checkVidiq() {
+    if (vidiqReported || !account?.signedIn) return;
+    const found = document.querySelector('[id*="vidiq" i], [class*="vidiq" i], [data-vidiq], iframe[src*="vidiq" i]');
+    if (found) {
+      vidiqReported = true;
+      send({ type: 'warm:vidiq' });
+    }
+  }
+  setInterval(checkVidiq, 10 * 1000);
+
   // ---------- Boot ----------
 
   window.addEventListener('yt-navigate-finish', () => {
