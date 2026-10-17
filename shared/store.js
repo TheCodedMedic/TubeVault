@@ -81,12 +81,13 @@ var TVStore = (() => {
       });
     },
 
-    // Deleting a folder keeps its channels by moving them to Unsorted.
-    deleteFolder(id) {
+    // Deletes a folder. Its channels are deleted too, or (by default) moved to Unsorted.
+    deleteFolder(id, { withChannels = false } = {}) {
       if (id === UNSORTED) return Promise.resolve();
       return update((d) => {
         d.folders = d.folders.filter((f) => f.id !== id);
-        d.channels.forEach((c) => {
+        if (withChannels) d.channels = d.channels.filter((c) => c.folderId !== id);
+        else d.channels.forEach((c) => {
           if (c.folderId === id) c.folderId = UNSORTED;
         });
       });

@@ -18,6 +18,8 @@ After you change the code, click the reload ↻ icon on the TubeVault card in `c
 - **Already saved?** The button turns grey and shows the folder name. Click it to move or remove the channel.
 - **Open the vault:** click the TubeVault toolbar icon. A sidebar opens with your folders.
 - **Organise:** drag channels between folders or up and down inside one. Drag a folder's header to reorder folders. Double-click a folder name, or use ✎, to rename it.
+- **Copy a folder:** 📋 copies every channel link in the folder to your clipboard, one per line.
+- **Delete a folder:** 🗑 asks whether to keep its channels (they move to Unsorted) or delete them too.
 - **Open a channel:** click it to open it in the current tab. Cmd-click opens it in a new tab.
 - **Add from the sidebar:** **+ Add current channel** saves the channel on screen to Unsorted.
 - **Backup:** the **Export backup** and **Import** links at the bottom. Data is stored locally in Chrome only.

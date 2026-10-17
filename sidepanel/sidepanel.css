@@ -107,6 +107,8 @@ main { flex: 1; padding: 8px 6px 24px; }
   font-size: 13px;
 }
 .folder-head:hover .icon-btn, .channel:hover .icon-btn { opacity: 1; }
+/* Folder actions (copy, rename, delete) stay visible, just quieter until hovered */
+.folder-head .icon-btn { opacity: 0.55; }
 .icon-btn:hover { background: var(--border); color: var(--fg); }
 
 .channels { padding: 0 0 4px 20px; }
@@ -250,3 +252,29 @@ body.view-icons .channel.insert-before::before {
   width: 3px;
   height: auto;
 }
+
+/* ---------- Choice dialog ---------- */
+.tv-dialog {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--fg);
+  padding: 18px;
+  width: min(320px, calc(100vw - 32px));
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+.tv-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+.tv-dialog h2 { font-size: 16px; margin: 0 0 6px; }
+.tv-dialog p { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+.tv-dialog-actions { display: flex; flex-direction: column; gap: 8px; }
+.tv-dialog-actions button {
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  text-align: left;
+  font-weight: 500;
+}
+.tv-dialog-actions button:hover { border-color: var(--fg); }
+.tv-dialog-actions button.danger { color: #fff; background: #cc0000; border-color: #cc0000; }
+.tv-dialog-actions button.ghost { background: none; border-color: transparent; color: var(--muted); text-align: center; }

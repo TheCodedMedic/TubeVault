@@ -42,6 +42,7 @@ function folderEl(folder, total, channels, forceOpen) {
     <span class="caret">▼</span>
     <span class="folder-icon">${folder.id === TVStore.UNSORTED ? '📥' : '📁'}</span>
     <span class="folder-name"></span>
+    <button class="icon-btn copy" title="Copy all channel links">📋</button>
     ${folder.id === TVStore.UNSORTED ? '' : '<button class="icon-btn rename" title="Rename">✎</button><button class="icon-btn delete" title="Delete folder">🗑</button>'}
     <span class="count">${total}</span>`;
   head.querySelector('.folder-name').textContent = folder.name;
@@ -56,11 +57,22 @@ function folderEl(folder, total, channels, forceOpen) {
     e.stopPropagation();
     startRename(head, folder);
   });
-  head.querySelector('.delete')?.addEventListener('click', () => {
-    const msg = total
-      ? `Delete "${folder.name}"? Its ${total} channel${total === 1 ? '' : 's'} will move to Unsorted.`
-      : `Delete "${folder.name}"?`;
-    if (confirm(msg)) TVStore.deleteFolder(folder.id);
+  head.querySelector('.copy').addEventListener('click', () => copyFolderLinks(folder));
+  head.querySelector('.delete')?.addEventListener('click', async () => {
+    if (!total) {
+      if (await choose(`Delete "${folder.name}"?`, 'This folder is empty.', [{ label: 'Delete folder', value: 'move', danger: true }])) {
+        TVStore.deleteFolder(folder.id);
+      }
+      return;
+    }
+    const n = `${total} channel${total === 1 ? '' : 's'}`;
+    const answer = await choose(`Delete "${folder.name}"?`, `It has ${n}. What should happen to them?`, [
+      { label: `Keep channels (move to Unsorted)`, value: 'move' },
+      { label: `Delete the ${n} too`, value: 'delete', danger: true },
+    ]);
+    if (!answer) return;
+    await TVStore.deleteFolder(folder.id, { withChannels: answer === 'delete' });
+    toast(answer === 'delete' ? `Deleted "${folder.name}" and its ${n}.` : `Deleted "${folder.name}". Its ${n} moved to Unsorted.`);
   });
 
   head.addEventListener('dragstart', (e) => {
@@ -210,6 +222,53 @@ function startRename(head, folder) {
 // ---------- Header actions ----------
 
 let toastTimer;
+// Copies every channel link in a folder, one per line.
+async function copyFolderLinks(folder) {
+  const links = data.channels.filter((c) => c.folderId === folder.id).map((c) => c.url);
+  if (!links.length) return toast(`"${folder.name}" has no channels to copy.`);
+  const text = links.join('\n');
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Fallback for when the clipboard API is blocked.
+    const ta = Object.assign(document.createElement('textarea'), { value: text });
+    document.body.append(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+  toast(`Copied ${links.length} link${links.length === 1 ? '' : 's'} from "${folder.name}".`);
+}
+
+// Small dialog with several choices. Resolves to the chosen value, or null if cancelled.
+function choose(title, message, options) {
+  return new Promise((resolve) => {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'tv-dialog';
+    dlg.innerHTML = `<h2></h2><p></p><div class="tv-dialog-actions"></div>`;
+    dlg.querySelector('h2').textContent = title;
+    dlg.querySelector('p').textContent = message;
+    const actions = dlg.querySelector('.tv-dialog-actions');
+    const done = (v) => {
+      dlg.close();
+      dlg.remove();
+      resolve(v);
+    };
+    for (const o of options) {
+      const b = Object.assign(document.createElement('button'), { type: 'button', textContent: o.label });
+      if (o.danger) b.className = 'danger';
+      b.addEventListener('click', () => done(o.value));
+      actions.append(b);
+    }
+    const cancel = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Cancel', className: 'ghost' });
+    cancel.addEventListener('click', () => done(null));
+    actions.append(cancel);
+    dlg.addEventListener('cancel', () => done(null));
+    document.body.append(dlg);
+    dlg.showModal();
+  });
+}
+
 function toast(msg) {
   const el = $('#toast');
   el.textContent = msg;
