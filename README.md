@@ -50,7 +50,19 @@ Warm up a new channel for 7 days before your first upload. You get a 0–100 Tru
   - **Check-ins:** at 8h, 24h, 48h and 72h. Impressions, CTR and traffic source exist only in YouTube Studio: **Open in Studio** goes straight to the video's Reach tab.
   - **Verdicts:** each video gets one ("YouTube is pushing it" / "Not being pushed"), and the channel gets an overall call.
 
-Full rules and scoring: `planning/warm-tracker-spec.md`.
+### How the Trust Score works (0–100)
+
+YouTube doesn't publish a trust score. This is TubeVault's own checklist score for how thoroughly a new channel has been warmed up; it is not what YouTube secretly thinks.
+
+| Part | Points |
+|---|---|
+| Gmail age (you enter the month it was created) | 20 |
+| Account security (2-step verification, phone verified) | 10 |
+| Channel basics (name, picture, feature eligibility, Made for Kids off, niche, ID, VidIQ) | 10 |
+| Warm-up days (best 7 days: 2h watching, 3–5 subscribes, 2+ comments, 5+ likes, 4+ searches) | 56 |
+| Same device all week | 4 |
+
+🟢 **Good to start** needs 80+, 2-step on, phone verified, and 7 warm-up days done.
 
 ## Files
 
