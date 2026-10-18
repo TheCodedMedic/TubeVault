@@ -3,8 +3,20 @@
 (() => {
   // After the extension is reloaded/updated, tabs that were already open keep a dead copy of this script
   // (its connection to the extension is gone). A fresh copy tells any older copy to shut down.
+  window.__tvInstance = window.__tvInstance || Math.random().toString(36).slice(2); // set by content.js on the same load
   document.querySelectorAll('tubevault-toast').forEach((e) => e.remove());
   document.dispatchEvent(new CustomEvent('tubevault:takeover'));
+  // A copy of this script left over from before an extension update can't be reached or stopped, and it keeps
+  // its own button on the page. Every element we create carries this run's id, and anything with another
+  // id is hidden, so only one button is ever visible.
+  const instance = window.__tvInstance;
+  let hide = document.getElementById('tubevault-hide-old');
+  if (!hide) {
+    hide = document.createElement('style');
+    hide.id = 'tubevault-hide-old';
+    document.documentElement.append(hide);
+  }
+  hide.textContent = `tubevault-button:not([data-tv="${instance}"]), tubevault-toast:not([data-tv="${instance}"]) { display: none !important; }`;
 
   const timers = [];
   let dead = false;
@@ -42,6 +54,7 @@
 
   // Small on-page notice for warm-up warnings (subscribing too fast, copy-paste comments).
   const toastHost = document.createElement('tubevault-toast');
+  toastHost.dataset.tv = instance;
   const toastRoot = toastHost.attachShadow({ mode: 'open' });
   toastRoot.innerHTML = `<style>
     .t { position: fixed; left: 20px; bottom: 20px; z-index: 2147483000; max-width: 340px; padding: 12px 14px;

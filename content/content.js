@@ -2,8 +2,20 @@
 // Whatever page you're on, the saved link is always the channel page.
 (() => {
   // Replace any dead copy left in the tab by a previous version of the extension (see tracker.js).
+  window.__tvInstance = Math.random().toString(36).slice(2); // new id for this run (tracker.js reads it too)
   document.querySelectorAll('tubevault-button').forEach((e) => e.remove());
   document.dispatchEvent(new CustomEvent('tubevault:takeover'));
+  // A copy of this script left over from before an extension update can't be reached or stopped, and it keeps
+  // its own button on the page. Every element we create carries this run's id, and anything with another
+  // id is hidden, so only one button is ever visible.
+  const instance = window.__tvInstance;
+  let hide = document.getElementById('tubevault-hide-old');
+  if (!hide) {
+    hide = document.createElement('style');
+    hide.id = 'tubevault-hide-old';
+    document.documentElement.append(hide);
+  }
+  hide.textContent = `tubevault-button:not([data-tv="${instance}"]), tubevault-toast:not([data-tv="${instance}"]) { display: none !important; }`;
 
   const text = (el) => (el?.textContent || '').trim();
   const visible = (sel) => document.querySelector(`${sel}:not([hidden])`) || null;
@@ -66,6 +78,7 @@
   // ---------- UI (inside a shadow root so YouTube's CSS can't break it) ----------
 
   const host = document.createElement('tubevault-button');
+  host.dataset.tv = instance;
   const shadow = host.attachShadow({ mode: 'open' });
   shadow.innerHTML = `
     <style>
