@@ -225,16 +225,39 @@ var TVWarm = (() => {
     return { key: 'waiting', label: 'Add the top traffic source to judge it' };
   }
 
-  // Finds the tracked channel for a signed-in account: by channel ID, then @handle, then name.
+  // Finds the tracked channel for a signed-in account.
+  // The channel ID never changes, so it wins. Name and @username can change, so they are only used
+  // for channels we don't have an ID for yet (or when the account's ID isn't known).
   function matchChannel(channels, acc) {
     if (!acc) return null;
-    const h = (acc.handle || '').toLowerCase();
-    return (
-      (acc.ytChannelId && channels.find((c) => c.ytChannelId === acc.ytChannelId)) ||
-      (h && channels.find((c) => (c.handle || '').toLowerCase() === h)) ||
-      (!h && !acc.ytChannelId && acc.name && channels.find((c) => c.name === acc.name)) ||
-      null
-    );
+    const low = (v) => String(v || '').trim().toLowerCase();
+    const h = low(acc.handle);
+    const n = low(acc.name);
+    const same = (c) => (h && low(c.handle) === h) || (n && low(c.name) === n);
+    if (acc.ytChannelId) {
+      return channels.find((c) => c.ytChannelId === acc.ytChannelId) || channels.find((c) => !c.ytChannelId && same(c)) || null;
+    }
+    return channels.find(same) || null;
+  }
+
+  // Same picture even if YouTube returned a different size of it (…=s88 vs …=s900).
+  const imageBase = (u) => String(u || '').split('=')[0];
+
+  // Brings a tracked channel up to date with what YouTube shows now. Returns what changed.
+  function applyProfile(channel, info) {
+    const changes = [];
+    const set = (field, label, value) => {
+      if (value && value !== channel[field]) {
+        changes.push({ field, label, from: channel[field] || '', to: value });
+        channel[field] = value;
+      }
+    };
+    if (info?.ytChannelId && !channel.ytChannelId) channel.ytChannelId = info.ytChannelId;
+    set('name', 'name', (info?.name || '').trim());
+    set('handle', 'username', (info?.handle || '').trim());
+    if (info?.avatar && imageBase(info.avatar) !== imageBase(channel.avatar)) set('avatar', 'picture', info.avatar);
+    if (changes.length) channel.profileChangedAt = Date.now();
+    return changes;
   }
 
   // Day number of the warm-up (start date = day 1).
@@ -284,6 +307,6 @@ var TVWarm = (() => {
     };
   }
 
-  return { matchChannel, dayNumber, uploadsAccess, parseFeed, FORCE_DAY, AUTO_DAY, CHECKPOINTS, SOURCES, DEFAULT_SETTINGS, subsTooFast, commentSig, latestCheck, uploadVerdict, uploadsDecision,
+  return { applyProfile, matchChannel, dayNumber, uploadsAccess, parseFeed, FORCE_DAY, AUTO_DAY, CHECKPOINTS, SOURCES, DEFAULT_SETTINGS, subsTooFast, commentSig, latestCheck, uploadVerdict, uploadsDecision,
     KEY, TARGETS, SETUP_ITEMS, dateKey, uid, emptyDay, load, save, getDay, totals, dayStatus, gmailAgeMonths, score };
 })();

@@ -95,23 +95,27 @@ async function handle(msg) {
   switch (msg.type) {
     // --- from YouTube tabs ---
     case 'warm:account': {
-      // Fill in whatever is missing (name, @handle, picture) from the channel ID.
+      // Fill in anything missing from the channel ID, then bring the tracked channel up to date
+      // (name, @username and picture can all change; the channel ID never does).
       let acc = { ...a };
       if (acc.ytChannelId && (!acc.name || !acc.handle || !acc.avatar)) {
         const info = await lookupChannel(acc.ytChannelId);
         if (info) acc = { ...acc, name: acc.name || info.name, handle: acc.handle || info.handle, avatar: acc.avatar || info.avatar };
       }
-      // A tracked channel that matches but lacks details gets them filled in.
+      let changes = [];
+      let channelId = null;
       await mutate((data) => {
         const c = TVWarm.matchChannel(data.channels, acc);
         if (!c) return;
-        if (acc.ytChannelId && !c.ytChannelId) c.ytChannelId = acc.ytChannelId;
-        if (acc.handle && !c.handle) c.handle = acc.handle;
-        if (acc.avatar && !c.avatar) c.avatar = acc.avatar;
+        channelId = c.id;
+        c.profileCheckedAt = Date.now();
+        changes = TVWarm.applyProfile(c, acc);
       });
       await chrome.storage.local.set({ [LAST_ACCOUNT]: { ...acc, at: Date.now() } });
-      return acc;
+      return { ...acc, changes, channelId };
     }
+    case 'warm:syncProfiles': // sidebar opened / new day: refresh every tracked channel's public profile
+      return refreshProfiles({ minAgeMs: msg.minAgeMs ?? 5 * 60 * 1000 });
     case 'warm:watch':
       return addWatch(a, msg.from, msg.to);
     case 'warm:sub':
@@ -353,6 +357,29 @@ async function lookupChannel(ytId) {
   return out.name || out.handle ? out : null;
 }
 
+// Re-reads each tracked channel's public name, @username and picture from YouTube and updates
+// whatever changed. Works without a YouTube tab open, using the permanent channel ID.
+async function refreshProfiles({ minAgeMs = 6 * 3600 * 1000 } = {}) {
+  const data = await TVWarm.load();
+  const updated = [];
+  for (const c of data.channels) {
+    // Only channels with a permanent ID. An old @username could now point at someone else, so never guess from it;
+    // the ID is learned the next time you're signed in to the channel and press ↻.
+    if (!c.ytChannelId) continue;
+    if (Date.now() - (c.profileCheckedAt || 0) < minAgeMs) continue;
+    const info = await lookupChannel(c.ytChannelId);
+    await mutate((d) => {
+      const ch = d.channels.find((x) => x.id === c.id);
+      if (!ch) return;
+      ch.profileCheckedAt = Date.now();
+      if (!info) return;
+      const changes = TVWarm.applyProfile(ch, info);
+      if (changes.length) updated.push({ id: ch.id, name: ch.name, changes });
+    });
+  }
+  return updated;
+}
+
 // ---------- Automatic upload tracking (channel feed) ----------
 
 const MAX_AUTO_UPLOADS = 5; // the "first uploads" we follow automatically
@@ -496,7 +523,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'warm-reminder') sendReminder();
   if (alarm.name === 'warm-tick') {
     updateBadge(); // also rolls the badge over at midnight
-    syncAllUploads().then(() => checkUploads());
+    refreshProfiles() // new day, new name/picture? picked up here even if no YouTube tab is open
+      .then(() => syncAllUploads())
+      .then(() => checkUploads());
   }
 });
 

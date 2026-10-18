@@ -546,13 +546,43 @@
       const tracked = trackedChannelFor(full);
       openId = tracked ? tracked.id : null;
       render();
-      flash(tracked ? `Signed in as ${full.name || full.handle}. Tracking this channel.` : `Found ${full.name || full.handle} (from ${acc.source}).`);
+      if (full.changes?.length) flash(describeChanges(full.changes, full.name || full.handle));
+      else flash(tracked ? `Signed in as ${full.name || full.handle}. Tracking this channel, profile is up to date.` : `Found ${full.name || full.handle} (from ${acc.source}).`);
     } catch (e) {
       flash(explain(e?.message || e));
     } finally {
       detectBtn.classList.remove('spin');
     }
   });
+
+  // "Updated Paper Balance: username and picture."
+  function describeChanges(changes, name) {
+    const labels = [...new Set(changes.map((c) => c.label))];
+    const list = labels.length > 1 ? `${labels.slice(0, -1).join(', ')} and ${labels.at(-1)}` : labels[0];
+    return `Updated ${name}: ${list} changed on YouTube.`;
+  }
+
+  // Quietly keeps tracked channels in sync whenever the sidebar opens:
+  // 1) the YouTube tab you're on (if any) tells us who is signed in, 2) every tracked channel's public profile is re-read.
+  async function autoSync() {
+    const notes = [];
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab && (!tab.url || /^https:\/\/(www|studio)\.youtube\.com\//.test(tab.url))) {
+        const acc = await detectInTab(tab);
+        if (acc && !acc.error && acc.signedIn !== false) {
+          const full = (await send({ type: 'warm:account', account: acc }))?.result;
+          if (full?.changes?.length) notes.push(describeChanges(full.changes, full.name || full.handle));
+        }
+      }
+    } catch {}
+    try {
+      const updated = (await send({ type: 'warm:syncProfiles' }))?.result || [];
+      for (const u of updated) notes.push(describeChanges(u.changes, u.name));
+    } catch {}
+    await refresh();
+    if (notes.length) flash(notes.join(' '));
+  }
 
   // ---------- Boot ----------
 
@@ -571,7 +601,7 @@
     device = r?.result || null;
     render();
   }).catch(() => {});
-  refresh();
+  refresh().then(autoSync);
   // Keep "today" and the watch timer fresh while the panel is open.
   setInterval(() => {
     if (selectedDate < TVWarm.dateKey() && selectedDate === lastToday) selectedDate = TVWarm.dateKey();

@@ -34,6 +34,9 @@ Warm up a new channel for 7 days before your first upload. You get a 0–100 Tru
 - **Warnings:**
   - **On the YouTube page:** subscribing too fast (3 in 2 minutes), more than 5 subscribes in a day, copy-pasted comments, and comments under 6 words.
   - **In the tracker:** the same warnings show on that day's counts.
+- **Profile stays up to date:** a channel's name, @username and picture can change, but its channel ID never does. TubeVault matches by ID, so a renamed channel is never mistaken for a new one.
+  - **Updates when:** you open the sidebar, press ↻, or (every few hours, even with no YouTube tab open) in the background.
+  - **You're told what changed:** e.g. "Updated Paper Balance: username and picture changed on YouTube."
 - **Toolbar badge:** shows today's tasks done (e.g. 3/5), or ✓ when the day is complete.
 - **Daily reminder:** a notification at the time you choose (default 7 pm) if today isn't done.
 - **First uploads:** shown from day 1 but locked.
