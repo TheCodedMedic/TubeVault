@@ -4,13 +4,18 @@ A Chrome extension for saving YouTube channels into niche folders.
 
 ## Install (one time)
 
-1. Open `chrome://extensions` in Chrome.
-2. Turn on **Developer mode** (top right).
-3. Click **Load unpacked** and choose this `TubeVault` folder.
-4. Pin TubeVault from the puzzle-piece menu so the icon stays in the toolbar.
-5. Refresh any YouTube tabs that were already open.
+TubeVault isn't in the Chrome Web Store, so you load it yourself. It takes about a minute and works in Chrome and other Chromium browsers (Edge, Brave, Arc, …).
 
-After you change the code, click the reload ↻ icon on the TubeVault card in `chrome://extensions`, then refresh YouTube.
+1. **Get the code.** Either:
+   - clone it: `git clone https://github.com/TheCodedMedic/TubeVault.git`
+   - or click **Code → Download ZIP** on GitHub and unzip it.
+2. Open `chrome://extensions` in your browser.
+3. Turn on **Developer mode** (top right).
+4. Click **Load unpacked** and choose the `TubeVault` folder (the one containing `manifest.json`).
+5. Pin TubeVault from the puzzle-piece menu so the icon stays in the toolbar.
+6. Refresh any YouTube tabs that were already open.
+
+**Updating:** `git pull` (or download the ZIP again), then click the reload ↻ icon on the TubeVault card in `chrome://extensions` and refresh YouTube.
 
 ## Use
 
@@ -56,3 +61,12 @@ Full rules and scoring: `planning/warm-tracker-spec.md`.
 - `shared/warm.js`: Warm Tracker data, Trust Score and upload verdicts
 - `content/tracker.js`: detects watching, subscribes, likes, comments and searches on YouTube
 - `sidepanel/`: the sidebar UI (`warm.js` / `warm.css` = Warm Tracker tab)
+
+## Privacy
+
+Everything is stored locally in your browser (`chrome.storage.local`). TubeVault has no server, no account and no analytics. It only talks to YouTube.
+
+## Author and licence
+
+Created by **Ufuoma Oboh** ([@TheCodedMedic](https://github.com/TheCodedMedic)).
+Released under the [MIT License](LICENSE). © 2026 Ufuoma Oboh.
