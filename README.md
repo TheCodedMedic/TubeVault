@@ -36,6 +36,10 @@ Warm up a new channel for 7 days before your first upload. You get a 0–100 Tru
 - **Start:** sign in to YouTube as your new channel, open the Warm Tracker tab, and click **+ Add @yourchannel**. You can track several channels at once.
 - **Auto-tracked on YouTube:** watch time (one clock, so videos playing at the same time aren't added together), subscribes, likes, comments and searches.
   - Corrections: drag the watch-time slider, or use −/+ on the other counts.
+- **Is it tracking?** The status line at the top of the Warm Tracker tab tells you, e.g. "● Tracking Paper Balance · video playing, counting watch time · counted 5s ago". Tracking runs inside your youtube.com tabs, so the sidebar does **not** need to be open. If you see a ⚠ instead:
+  - **"Not tracking on this tab":** press **Reload tab** (this happens when the extension was updated after the tab opened).
+  - **"Not counting … isn't in the Warm Tracker":** the channel you're signed in as isn't added yet. Add it with ↻.
+  - **"This tab isn't signed in":** sign in to YouTube.
 - **Warnings:**
   - **On the YouTube page:** subscribing too fast (3 in 2 minutes), more than 5 subscribes in a day, copy-pasted comments, and comments under 6 words.
   - **In the tracker:** the same warnings show on that day's counts.

@@ -1,6 +1,10 @@
 // Injects a "+" button on YouTube channel, video and Shorts pages.
 // Whatever page you're on, the saved link is always the channel page.
 (() => {
+  // Replace any dead copy left in the tab by a previous version of the extension (see tracker.js).
+  document.querySelectorAll('tubevault-button').forEach((e) => e.remove());
+  document.dispatchEvent(new CustomEvent('tubevault:takeover'));
+
   const text = (el) => (el?.textContent || '').trim();
   const visible = (sel) => document.querySelector(`${sel}:not([hidden])`) || null;
 
@@ -228,12 +232,19 @@
     }, 300);
   };
 
-  new MutationObserver((mutations) => {
+  const observer = new MutationObserver((mutations) => {
     // Ignore mutations caused by our own button.
     if (mutations.every((m) => m.target === host || host.contains(m.target))) return;
     scheduleSync();
-  }).observe(document.body, { childList: true, subtree: true });
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
   window.addEventListener('yt-navigate-finish', scheduleSync);
+  document.addEventListener('tubevault:takeover', () => {
+    observer.disconnect();
+    window.removeEventListener('yt-navigate-finish', scheduleSync);
+    clearTimeout(timer);
+    host.remove();
+  });
 
   TVStore.load().then((d) => {
     data = d;

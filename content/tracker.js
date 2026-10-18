@@ -1,7 +1,44 @@
 // Warm Tracker: watches what you do on YouTube and reports it to the background worker,
 // which credits it to the channel you're signed in as.
 (() => {
-  const send = (msg) => chrome.runtime.sendMessage({ ...msg, account }).catch(() => null);
+  // After the extension is reloaded/updated, tabs that were already open keep a dead copy of this script
+  // (its connection to the extension is gone). A fresh copy tells any older copy to shut down.
+  document.querySelectorAll('tubevault-toast').forEach((e) => e.remove());
+  document.dispatchEvent(new CustomEvent('tubevault:takeover'));
+
+  const timers = [];
+  let dead = false;
+  const shutdown = () => {
+    dead = true;
+    timers.forEach(clearInterval);
+    document.querySelectorAll('tubevault-toast').forEach((e) => e.remove());
+  };
+  document.addEventListener('tubevault:takeover', shutdown);
+
+  // Status the sidebar can read: did the background credit our activity to a tracked channel?
+  let matched = null;
+  let lastCountedAt = 0;
+  const COUNTED = /^warm:(watch|sub|like|comment|search)$/;
+
+  function send(msg) {
+    if (dead) return Promise.resolve(null);
+    try {
+      return chrome.runtime.sendMessage({ ...msg, account }).then(
+        (r) => {
+          if (COUNTED.test(msg.type) && r?.ok && r.result !== null) {
+            matched = r.result !== false;
+            if (matched && msg.type === 'warm:watch') lastCountedAt = Date.now();
+          }
+          return r;
+        },
+        () => null
+      );
+    } catch {
+      // "Extension context invalidated": the extension was reloaded and this copy is orphaned.
+      shutdown();
+      return Promise.resolve(null);
+    }
+  }
 
   // Small on-page notice for warm-up warnings (subscribing too fast, copy-paste comments).
   const toastHost = document.createElement('tubevault-toast');
@@ -72,7 +109,9 @@
       return account;
     }
     account = found || { signedIn: true };
-    send({ type: 'warm:account' });
+    send({ type: 'warm:account' }).then((r) => {
+      if (r?.ok) matched = !!r.result?.channelId;
+    });
     return account;
   }
 
@@ -89,11 +128,15 @@
   // The background merges intervals from all tabs, so overlapping videos count once.
 
   let lastTick = null;
-  const playing = () => {
-    const v = document.querySelector('video');
-    const player = v?.closest('.html5-video-player');
-    return !!v && !v.paused && !v.ended && v.readyState > 2 && !player?.classList.contains('ad-showing');
-  };
+  // Any video that is really playing counts: not hover previews, not ads. (Shorts keep several <video>
+  // elements on the page, so looking only at the first one is not enough.)
+  const isPlaying = (v) =>
+    !v.paused &&
+    !v.ended &&
+    v.readyState > 2 &&
+    !v.closest('ytd-video-preview, #inline-preview-player, ytd-miniplayer-preview') &&
+    !v.closest('.html5-video-player')?.classList.contains('ad-showing');
+  const playing = () => [...document.querySelectorAll('video')].some(isPlaying);
 
   function tick() {
     const now = Date.now();
@@ -104,12 +147,13 @@
       lastTick = null;
     }
   }
-  setInterval(tick, 5000);
-  // Close the interval right when playback stops, so the last seconds aren't lost.
-  document.addEventListener('pause', () => {
+  timers.push(setInterval(tick, 5000));
+  // When playback stops, close the interval right away so the last seconds aren't lost.
+  const flush = () => {
     if (lastTick && account?.signedIn) send({ type: 'warm:watch', from: lastTick, to: Date.now() });
-    lastTick = null;
-  }, true);
+    lastTick = playing() ? Date.now() : null;
+  };
+  for (const ev of ['pause', 'ended', 'waiting']) document.addEventListener(ev, flush, true);
   document.addEventListener('playing', () => { if (!lastTick) lastTick = Date.now(); }, true);
 
   // ---------- Subscribe / like / comment clicks ----------
@@ -215,6 +259,18 @@
 
   // The sidebar's First Upload Tracker asks for the video on screen.
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (dead) return;
+    if (msg?.type === 'tubevault:ping') {
+      sendResponse({
+        alive: true,
+        signedIn: !!account?.signedIn,
+        account: account?.signedIn ? { name: account.name || '', handle: account.handle || '', ytChannelId: account.ytChannelId || '' } : null,
+        matched,
+        playing: playing(),
+        lastCountedAt,
+      });
+      return;
+    }
     if (msg?.type !== 'tubevault:getVideo') return;
     const id = videoId();
     const title = (document.querySelector('ytd-watch-metadata h1, h1.ytd-watch-metadata')?.textContent || document.title.replace(/ - YouTube$/, '')).trim();
@@ -233,7 +289,7 @@
       send({ type: 'warm:vidiq' });
     }
   }
-  setInterval(checkVidiq, 10 * 1000);
+  timers.push(setInterval(checkVidiq, 10 * 1000));
 
   // ---------- Boot ----------
 
@@ -242,5 +298,5 @@
     checkSearch();
   });
   detectAccount().then(checkSearch);
-  setInterval(refreshAccount, 5 * 60 * 1000);
+  timers.push(setInterval(refreshAccount, 5 * 60 * 1000));
 })();

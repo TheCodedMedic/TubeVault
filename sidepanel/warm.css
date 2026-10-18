@@ -230,3 +230,10 @@ button.small { padding: 5px 12px; border-radius: 14px; border: none; }
 .w-acct { display: flex; gap: 10px; align-items: center; }
 .w-acct > div { flex: 1; min-width: 0; }
 .w-acct .muted { font-size: 12px; }
+
+/* ---------- Tracking status line ---------- */
+.w-status { border-radius: 10px; padding: 9px 12px; font-size: 12px; line-height: 1.5; border: 1px solid var(--border); background: var(--card); }
+.w-status.ok { color: var(--green); border-color: rgba(30, 158, 74, 0.4); }
+.w-status.warn { color: var(--fg); border-color: var(--yellow); background: rgba(215, 155, 0, 0.12); }
+.w-status.warn b:first-child { color: var(--yellow); }
+.w-status button { display: block; margin-top: 8px; }

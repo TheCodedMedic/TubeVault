@@ -55,7 +55,7 @@
     }
     pendingRender = false;
     const channel = data.channels.find((c) => c.id === openId);
-    root.innerHTML = channel ? detailHtml(channel) : listHtml();
+    root.innerHTML = statusHtml() + (channel ? detailHtml(channel) : listHtml());
   }
   let pendingRender = false;
   root.addEventListener('focusout', () => setTimeout(() => pendingRender && render(), 0));
@@ -63,6 +63,57 @@
   function trackedChannelFor(acc) {
     if (!acc?.signedIn) return null;
     return TVWarm.matchChannel(data.channels, acc);
+  }
+
+  // ---------- Is tracking actually running? ----------
+  // Tracking happens inside the YouTube tab (not in this sidebar). This asks that tab and says what it sees.
+
+  let live = null;
+
+  async function pollStatus() {
+    if (document.body.dataset.tab !== 'warm' || document.hidden) return;
+    let next = { kind: 'idle' };
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const url = tab?.url || '';
+      if (!tab || (url && !/^https:\/\/(www|studio)\.youtube\.com\//.test(url))) next = { kind: 'other' };
+      else if (/^https:\/\/studio\.youtube\.com\//.test(url)) next = { kind: 'studio' };
+      else {
+        try {
+          const r = await chrome.tabs.sendMessage(tab.id, { type: 'tubevault:ping' });
+          next = r?.alive ? { kind: 'alive', ...r, tabId: tab.id } : { kind: 'dead', tabId: tab.id };
+        } catch {
+          next = { kind: 'dead', tabId: tab.id };
+        }
+      }
+    } catch {}
+    if (JSON.stringify(next) !== JSON.stringify(live)) {
+      live = next;
+      render();
+    }
+  }
+
+  function agoText(ms) {
+    if (!ms) return 'nothing counted yet';
+    const s = Math.round((Date.now() - ms) / 1000);
+    return s < 60 ? `counted ${Math.max(s, 1)}s ago` : s < 3600 ? `counted ${Math.round(s / 60)} min ago` : `counted ${Math.round(s / 3600)}h ago`;
+  }
+
+  function statusHtml() {
+    if (!live || live.kind === 'idle') return '';
+    if (live.kind === 'other') return `<div class="w-status muted">Open YouTube to track. Tracking runs inside youtube.com tabs, so this sidebar doesn't need to be open.</div>`;
+    if (live.kind === 'studio') return `<div class="w-status muted">YouTube Studio isn't tracked. Watch, subscribe and comment on youtube.com.</div>`;
+    if (live.kind === 'dead') {
+      return `<div class="w-status warn"><b>⚠ Not tracking on this tab.</b> TubeVault isn't running in it (usually because the extension was updated after the tab opened).
+        <button type="button" class="primary small" data-action="reload-tab">Reload tab</button></div>`;
+    }
+    if (!live.signedIn) return `<div class="w-status warn"><b>⚠ Not tracking:</b> this tab isn't signed in to YouTube.</div>`;
+    const who = esc(live.account?.name || live.account?.handle || 'your channel');
+    if (live.matched === false) {
+      return `<div class="w-status warn"><b>⚠ Not counting:</b> you're signed in as <b>${who}</b>, which isn't in the Warm Tracker. Add it below, then it counts.</div>`;
+    }
+    const state = live.playing ? 'video playing, counting watch time' : 'nothing playing';
+    return `<div class="w-status ok">● Tracking <b>${who}</b> · ${state} · ${agoText(live.lastCountedAt)}</div>`;
   }
 
   function accountBanner() {
@@ -82,6 +133,7 @@
     const tracked = trackedChannelFor(account);
     const pic = avatar({ name: account.name || account.handle, avatar: account.avatar }, 32);
     if (tracked) {
+      if (live?.kind === 'alive') return ''; // the status line above already says it
       return `<div class="w-banner ok w-acct">${pic}<div>● Tracking <b>${who}</b> right now ${sub}</div></div>`;
     }
     return `<div class="w-banner w-acct">${pic}<div>Signed in as <b>${who}</b> ${sub}
@@ -392,6 +444,11 @@
       send({ type: 'warm:adjust', id: openId, date: selectedDate, field: el.dataset.field, delta: Number(el.dataset.delta) });
     } else if (action === 'del-upload') {
       if (confirm('Stop tracking this video?')) send({ type: 'warm:deleteUpload', id: openId, uploadId: el.dataset.upload });
+    } else if (action === 'reload-tab') {
+      if (live?.tabId) chrome.tabs.reload(live.tabId);
+      live = { kind: 'idle' };
+      render();
+      setTimeout(pollStatus, 3500);
     } else if (action === 'force-unlock') {
       send({ type: 'warm:updateChannel', id: openId, patch: { forceUnlocked: true } }).then(() => send({ type: 'warm:syncUploads', id: openId }));
     } else if (action === 'sync-uploads') {
@@ -602,6 +659,11 @@
     render();
   }).catch(() => {});
   refresh().then(autoSync);
+  pollStatus();
+  setInterval(pollStatus, 3000);
+  chrome.tabs.onActivated.addListener(() => setTimeout(pollStatus, 300));
+  chrome.tabs.onUpdated.addListener((_id, info) => info.status === 'complete' && setTimeout(pollStatus, 1500));
+  document.querySelectorAll('[data-tab-btn]').forEach((b) => b.addEventListener('click', () => setTimeout(pollStatus, 100)));
   // Keep "today" and the watch timer fresh while the panel is open.
   setInterval(() => {
     if (selectedDate < TVWarm.dateKey() && selectedDate === lastToday) selectedDate = TVWarm.dateKey();

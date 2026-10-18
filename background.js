@@ -4,11 +4,27 @@ importScripts('shared/warm.js');
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
   setupAlarms();
+  injectIntoOpenTabs();
 });
 chrome.runtime.onStartup.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
   setupAlarms();
 });
+
+// Tabs opened before the extension was installed/reloaded don't get its scripts automatically (they keep a
+// dead copy of the old version, or none). Put fresh copies in so tracking works without refreshing the tab.
+const PAGE_SCRIPTS = ['shared/store.js', 'shared/warm.js', 'sidepanel/detect.js', 'content/content.js', 'content/tracker.js'];
+async function injectIntoOpenTabs() {
+  try {
+    const tabs = await chrome.tabs.query({ url: ['https://www.youtube.com/*', 'https://studio.youtube.com/*'] });
+    for (const tab of tabs) {
+      const studio = new URL(tab.url).hostname === 'studio.youtube.com';
+      chrome.scripting
+        .executeScript({ target: { tabId: tab.id }, files: studio ? ['sidepanel/detect.js'] : PAGE_SCRIPTS })
+        .catch(() => {}); // e.g. a discarded or still-loading tab: it will load the scripts normally
+    }
+  } catch {}
+}
 
 // ---------- Device identity (for the "same device" check) ----------
 
@@ -56,6 +72,7 @@ async function withDay(account, fn) {
     if (!id) return false;
     const day = TVWarm.getDay(data, id, TVWarm.dateKey());
     day.devices[device.id] = 1;
+    data.channels.find((c) => c.id === id).lastTrackedAt = Date.now();
     const result = fn(day, data, id);
     return result === undefined ? true : result;
   });
@@ -68,7 +85,7 @@ const coveredUntil = {};
 const MAX_GAP_MS = 90 * 1000; // background tabs may tick as slowly as once a minute
 
 function addWatch(account, from, to) {
-  if (!(to > from) || to - from > MAX_GAP_MS || to > Date.now() + 5000) return Promise.resolve(false);
+  if (!(to > from) || to - from > MAX_GAP_MS || to > Date.now() + 5000) return Promise.resolve(null); // ignored, not "unmatched"
   return withDay(account, (day, data, id) => {
     const start = Math.max(from, coveredUntil[id] || 0);
     if (to > start) {
