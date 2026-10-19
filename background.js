@@ -168,6 +168,16 @@ async function handle(msg) {
         if (c && !c.setup?.vidiq) c.setup = { ...c.setup, vidiq: true };
         return !!c;
       });
+    case 'warm:watchLater': // a video was added to (or removed from) Watch later
+      return withDay(a, (day) => {
+        day.watchLater = day.watchLater || {};
+        const key = msg.videoId || `wl-${Date.now()}`;
+        // When the page doesn't show whether it's now on or off, a second click on the same video means "removed".
+        const added = msg.added ?? !day.watchLater[key];
+        if (added) day.watchLater[key] = 1;
+        else delete day.watchLater[key];
+        return { added, count: Object.keys(day.watchLater).length };
+      });
     case 'warm:search':
       return withDay(a, (day) => {
         if (!day.searches.includes(msg.query)) day.searches.push(msg.query);
@@ -187,7 +197,6 @@ async function handle(msg) {
           avatar: ch.avatar || '',
           gmailCreated: ch.gmailCreated || '',
           startDate: TVWarm.dateKey(),
-          niche: '',
           setup: { name: !!(ch.name && ch.ytChannelId) || !!ch.handle },
         };
         data.channels.push(channel);
@@ -488,10 +497,10 @@ async function updateBadge(data) {
   const channel = data.channels.find((c) => c.id === id);
   if (!channel) return chrome.action.setBadgeText({ text: '' });
   const st = TVWarm.dayStatus(data.days[id]?.[TVWarm.dateKey()] || TVWarm.emptyDay());
-  const done = st.done && st.tasks === 5;
-  chrome.action.setBadgeText({ text: done ? '✓' : `${st.tasks}/5` });
+  const done = st.done;
+  chrome.action.setBadgeText({ text: done ? '✓' : `${st.tasks}/${TVWarm.TASK_COUNT}` });
   chrome.action.setBadgeBackgroundColor({ color: done ? '#1e9e4a' : st.done ? '#d79b00' : '#e5243b' });
-  chrome.action.setTitle({ title: `TubeVault: ${channel.name}, ${st.tasks}/5 warm-up tasks done today` });
+  chrome.action.setTitle({ title: `TubeVault: ${channel.name}, ${st.tasks}/${TVWarm.TASK_COUNT} warm-up tasks done today` });
 }
 
 // ---------- Alarms: daily reminder + periodic checks ----------
@@ -525,6 +534,9 @@ async function sendReminder() {
     const n = (k, word) => `${k} ${word}${k === 1 ? '' : 's'}`;
     if (t.subs < TVWarm.TARGETS.subsMin) left.push(n(TVWarm.TARGETS.subsMin - t.subs, 'subscribe'));
     if (t.comments < TVWarm.TARGETS.commentsMin) left.push(n(TVWarm.TARGETS.commentsMin - t.comments, 'comment'));
+    if (t.likes < TVWarm.TARGETS.likesMin) left.push(n(TVWarm.TARGETS.likesMin - t.likes, 'like'));
+    if (t.searches < TVWarm.TARGETS.searchesMin) left.push(n(TVWarm.TARGETS.searchesMin - t.searches, 'search'));
+    if (t.watchLater < TVWarm.TARGETS.watchLaterMin) left.push('1 Watch later');
     lines.push(`${c.name}: ${left.join(', ')} left`);
   }
   if (!lines.length) return;

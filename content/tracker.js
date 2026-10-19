@@ -30,7 +30,7 @@
   // Status the sidebar can read: did the background credit our activity to a tracked channel?
   let matched = null;
   let lastCountedAt = 0;
-  const COUNTED = /^warm:(watch|sub|like|comment|search)$/;
+  const COUNTED = /^warm:(watch|sub|like|comment|search|watchLater)$/;
 
   function send(msg) {
     if (dead) return Promise.resolve(null);
@@ -201,11 +201,78 @@
     setTimeout(fn, ms);
   }
 
+  // ---------- Watch later ----------
+  // YouTube has several ways to add a video: the clock on a thumbnail, the player's own button, the Save
+  // dialog and the ⋮ menu. They all say "Watch later", so recognise the click by that label.
+
+  const RENDERERS = 'ytd-video-renderer, ytd-rich-item-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-playlist-video-renderer, ytd-reel-item-renderer, yt-lockup-view-model, ytd-rich-grid-media';
+  const WL = /watch\s*later/i;
+  // Links to the Watch later playlist (sidebar, playlist page) are navigation, not adding a video.
+  const NAV = 'a[href], ytd-guide-renderer, ytd-mini-guide-renderer, tp-yt-app-drawer, #guide, ytd-playlist-header-renderer, ytd-playlist-sidebar-renderer';
+  const ROW = 'ytd-menu-service-item-renderer, yt-list-item-view-model, ytd-playlist-add-to-option-renderer, tp-yt-paper-item, [role="menuitem"], [role="checkbox"], [role="option"], label';
+
+  let ctxVideo = null; // the video whose ⋮ menu was just opened { id, at }
+
+  function videoIdIn(el) {
+    const link = el.querySelector('a[href*="/watch?v="], a[href*="/shorts/"]');
+    const m = link?.getAttribute('href')?.match(/[?&]v=([\w-]{11})|\/shorts\/([\w-]{11})/);
+    return m ? m[1] || m[2] : null;
+  }
+
+  function isWatchLaterEl(el) {
+    if (!(el instanceof Element) || el.closest(NAV)) return false;
+    if (el.classList.contains('ytp-watch-later-button')) return true;
+    if (WL.test(el.getAttribute('aria-label') || '') || WL.test(el.getAttribute('data-tooltip-title') || '')) return true;
+    if (el.matches(ROW)) {
+      const t = (el.textContent || '').trim();
+      return t.length < 60 && WL.test(t);
+    }
+    return false;
+  }
+
+  // Which video was it? The one in the same card; else the one whose ⋮ menu was just opened; else this page's.
+  function videoForWatchLater(el) {
+    const card = el.closest(RENDERERS);
+    if (card) return videoIdIn(card) || videoId();
+    if (ctxVideo && Date.now() - ctxVideo.at < 15000) return ctxVideo.id;
+    return videoId();
+  }
+
+  // On or off after the click? Checkboxes and toggles say so; if the page doesn't, report "unknown".
+  function watchLaterState(el) {
+    for (const n of [el, ...el.querySelectorAll('input, [aria-checked], [aria-pressed]')]) {
+      const v = n.getAttribute('aria-checked') ?? n.getAttribute('aria-pressed');
+      if (v === 'true') return true;
+      if (v === 'false') return false;
+      if (n.type === 'checkbox') return n.checked;
+    }
+    const label = `${el.getAttribute('aria-label') || ''} ${el.getAttribute('data-tooltip-title') || ''} ${el.textContent || ''}`.toLowerCase();
+    if (/removed/.test(label)) return false;
+    if (/added|remove from|in watch later/.test(label)) return true;
+    return undefined;
+  }
+
   document.addEventListener(
     'click',
     (e) => {
       if (!account?.signedIn) return;
       const target = e.target;
+
+      // Remember which video a ⋮ menu belongs to (its menu items live outside the video's card).
+      const moreBtn = target.closest?.('button');
+      if (moreBtn && /action menu|more actions|more options/i.test(moreBtn.getAttribute('aria-label') || '')) {
+        const card = moreBtn.closest(RENDERERS);
+        const id = card && videoIdIn(card);
+        if (id) ctxVideo = { id, at: Date.now() };
+      }
+
+      // Watch later
+      const wlEl = e.composedPath().slice(0, 10).find(isWatchLaterEl);
+      if (wlEl) {
+        const id = videoForWatchLater(wlEl);
+        setTimeout(() => send({ type: 'warm:watchLater', videoId: id, added: wlEl.isConnected ? watchLaterState(wlEl) : undefined }), 700);
+        return;
+      }
 
       // Subscribe / unsubscribe (also the "Unsubscribe" confirm dialog).
       const subBtn = target.closest('ytd-subscribe-button-renderer button, yt-subscribe-button-view-model button');

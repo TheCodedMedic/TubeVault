@@ -237,3 +237,64 @@ button.small { padding: 5px 12px; border-radius: 14px; border: none; }
 .w-status.warn { color: var(--fg); border-color: var(--yellow); background: rgba(215, 155, 0, 0.12); }
 .w-status.warn b:first-child { color: var(--yellow); }
 .w-status button { display: block; margin-top: 8px; }
+
+/* ---------- Month picker ---------- */
+.w-gmail { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.mp { position: relative; display: inline-block; }
+.mp-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--fg);
+  font-weight: 500;
+}
+.mp-trigger:hover, .mp-trigger[aria-expanded="true"] { border-color: var(--fg); }
+.mp-trigger.empty { color: var(--muted); font-weight: 400; }
+.mp-caret { font-size: 10px; color: var(--muted); }
+.mp-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  width: 248px;
+  max-width: calc(100vw - 48px);
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+.mp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.mp-head b { font-size: 15px; }
+.mp-head button {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--fg);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}
+.mp-head button:hover:not(:disabled) { border-color: var(--fg); }
+.mp-head button:disabled, .mp-m:disabled { opacity: 0.3; cursor: default; }
+.mp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.mp-m {
+  padding: 9px 0;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--fg);
+  font-weight: 500;
+}
+.mp-m:hover:not(:disabled) { border-color: var(--fg); }
+.mp-m.sel { background: var(--accent); color: #fff; border-color: var(--accent); }
+.mp-foot { display: flex; justify-content: space-between; margin-top: 8px; }
+.w-lock-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.w-lock-actions button.small:not(.primary) { border: 1px solid var(--border); background: var(--card); color: var(--fg); border-radius: 14px; padding: 5px 12px; }
+.w-add .mp { align-self: flex-start; }

@@ -11,6 +11,9 @@
   let openId = null; // channel shown in detail view
   let selectedDate = TVWarm.dateKey();
   let adding = false;
+  let addName = ''; // typed into the add form (kept so opening the month picker doesn't wipe it)
+  let addGmail = '';
+  let picker = null; // open month picker: { scope: 'detail' | 'add', year }
 
   const send = (msg) => chrome.runtime.sendMessage(msg);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -140,6 +143,41 @@
       <button type="button" class="primary small" data-action="add-signed-in">+ Add to Warm Tracker</button></div></div>`;
   }
 
+  // ---------- Month picker (replaces the browser's native month input) ----------
+
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const GMAIL_START = 2004; // Gmail launched in 2004
+  const fmtMonth = (ym) => (/^\d{4}-\d{2}$/.test(ym || '') ? `${MONTHS[Number(ym.slice(5)) - 1]} ${ym.slice(0, 4)}` : '');
+
+  function monthPicker(scope, value) {
+    const open = picker?.scope === scope;
+    const trigger = `<button type="button" class="mp-trigger ${value ? '' : 'empty'}" data-action="mp-toggle" data-scope="${scope}" aria-expanded="${open}">
+      <span>${value ? esc(fmtMonth(value)) : 'Pick month'}</span><span class="mp-caret">${open ? '▴' : '▾'}</span></button>`;
+    if (!open) return `<div class="mp">${trigger}</div>`;
+    const now = new Date();
+    const curY = now.getFullYear();
+    const curM = now.getMonth() + 1;
+    const y = picker.year;
+    const cells = MONTHS.map((name, i) => {
+      const v = `${y}-${String(i + 1).padStart(2, '0')}`;
+      const future = y > curY || (y === curY && i + 1 > curM);
+      return `<button type="button" class="mp-m ${v === value ? 'sel' : ''}" data-action="mp-pick" data-value="${v}" ${future ? 'disabled' : ''}>${name.slice(0, 3)}</button>`;
+    }).join('');
+    return `<div class="mp">${trigger}
+      <div class="mp-pop" role="dialog" aria-label="Choose month and year">
+        <div class="mp-head">
+          <button type="button" data-action="mp-year" data-delta="-1" aria-label="Previous year" ${y <= GMAIL_START ? 'disabled' : ''}>‹</button>
+          <b>${y}</b>
+          <button type="button" data-action="mp-year" data-delta="1" aria-label="Next year" ${y >= curY ? 'disabled' : ''}>›</button>
+        </div>
+        <div class="mp-grid">${cells}</div>
+        <div class="mp-foot">
+          <button type="button" class="w-link" data-action="mp-clear">Clear</button>
+          <button type="button" class="w-link" data-action="mp-pick" data-value="${curY}-${String(curM).padStart(2, '0')}">This month</button>
+        </div>
+      </div></div>`;
+  }
+
   function listHtml() {
     const today = TVWarm.dateKey();
     const cards = data.channels
@@ -159,8 +197,9 @@
 
     const form = adding
       ? `<form class="w-add" data-form="add">
-          <input name="name" placeholder="Channel name" required />
-          <label class="muted">When was the Gmail created? <input name="gmail" type="month" /></label>
+          <input name="name" placeholder="Channel name" value="${esc(addName)}" required />
+          <div class="muted">When was the Gmail created?</div>
+          ${monthPicker('add', addGmail)}
           <div class="row"><button type="submit" class="primary">Add channel</button><button type="button" data-action="cancel-add">Cancel</button></div>
         </form>`
       : `<button type="button" class="w-link" data-action="show-add">+ Add a channel manually</button>`;
@@ -198,7 +237,7 @@
     const max = Math.max(240, Math.ceil(min / 60) * 60);
     return `<div class="w-counter">
       <div class="w-counter-top">
-        <span class="w-counter-label">Watch niche videos</span>
+        <span class="w-counter-label">Watch videos</span>
         <span class="w-counter-value" data-watch-label>${fmtTime(sec)} / 2h</span>
       </div>
       <input type="range" class="w-slider" data-action="watch-slider" min="0" max="${max}" step="5" value="${min}"
@@ -221,17 +260,14 @@
     if (access.state === 'locked') {
       return `<h3>First uploads 🔒</h3>
         <div class="w-locked">
-          <b>Locked: you're on day ${access.day} of the warm-up.</b>
-          <p class="muted">You can unlock it early on day ${TVWarm.FORCE_DAY} (in ${plural(access.forceIn, 'day')}). It opens by itself on day ${TVWarm.AUTO_DAY}, or as soon as the channel is Good to start.</p>
+          <b>Locked: day ${access.day} of the warm-up.</b>
+          <p class="muted">It opens by itself on day ${TVWarm.AUTO_DAY} (in ${plural(access.autoIn, 'day')}) or once the channel is Good to start.
+            Not warming for days, or not a new channel? You can unlock it now.</p>
           <p class="muted">Once open, TubeVault finds your uploads by itself and tracks them at 8h, 24h, 48h and 72h.</p>
-        </div>`;
-    }
-    if (access.state === 'can-force') {
-      return `<h3>First uploads 🔒</h3>
-        <div class="w-locked">
-          <b>Day ${access.day}: you can start tracking uploads now.</b>
-          <p class="muted">Or keep warming. It unlocks by itself on day ${TVWarm.AUTO_DAY} (in ${plural(access.autoIn, 'day')}).</p>
-          <button type="button" class="primary small" data-action="force-unlock">Unlock now</button>
+          <div class="w-lock-actions">
+            <button type="button" class="primary small" data-action="force-unlock">Unlock now</button>
+            <button type="button" class="small" data-action="not-new">This channel isn't new</button>
+          </div>
         </div>`;
     }
     const decision = TVWarm.uploadsDecision(uploads);
@@ -280,11 +316,12 @@
     return `<h3>First uploads</h3>
       <div class="u-auto">
         <div>
-          <b>Auto-tracking is on.</b>
+          <b>Auto-tracking is on.</b>${c.forceUnlocked ? ` <span class="muted">(${esc(access.why)})</span>` : ''}
           <div class="muted">TubeVault checks your channel every 30 minutes, starts tracking new uploads and fills in their views. ${synced}.</div>
         </div>
         <button type="button" class="primary small" data-action="sync-uploads" ${needsLink ? 'disabled' : ''}>↻ Refresh</button>
       </div>
+      ${c.forceUnlocked ? `<button type="button" class="w-link" data-action="relock">🔒 Lock first uploads again</button>` : ''}
       ${needsLink ? `<form class="u-add" data-form="channel-link"><input name="link" placeholder="Your channel link or @handle" /><button type="submit" class="primary small">Save</button></form>` : ''}
       ${!uploads.length && !needsLink ? `<div class="w-hint">No uploads since ${esc(c.startDate)} yet. Publish your first video and it'll appear here, or press Refresh.</div>` : ''}
       <div class="w-hint">Impressions, CTR and traffic source are only visible in YouTube Studio: use <b>Open in Studio</b> on a check-in and copy them over.</div>
@@ -387,7 +424,7 @@
       <div class="w-chips">${chips}</div>
       <div class="w-day">
         ${watchRow(t.watchSec)}
-        ${counter('subs', 'Subscribe to niche channels', t.subs, T.subsMin, `${t.subs} / ${T.subsMin}–${T.subsMax}`,
+        ${counter('subs', 'Subscribe to channels', t.subs, T.subsMin, `${t.subs} / ${T.subsMin}–${T.subsMax}`,
           `<div class="w-hint">💡 Tip: favour channels run by real people over AI channels.</div>` +
           (st.subsOver ? `<div class="w-warn">More than ${T.subsMax} today: subscribes don't count for this day.</div>` : '') +
           (st.tooFast ? `<div class="w-warn">${T.fastSubs}+ subscribes within 2 minutes. Spread them out across your watching session.</div>` : '') +
@@ -396,13 +433,14 @@
           (t.shortComments ? `<div class="w-warn">${t.shortComments} comment${t.shortComments === 1 ? ' was' : 's were'} too short (under ${T.minCommentWords} words), not counted.</div>` : '') +
           (t.dupComments ? `<div class="w-warn">${t.dupComments} copy-pasted comment${t.dupComments === 1 ? '' : 's'} (same text as before), not counted.</div>` : ''))}
         ${counter('likes', 'Like videos you watched', t.likes, T.likesMin, `${t.likes} / ${T.likesMin}–${T.likesTarget}`)}
+        ${counter('watchLater', 'Add a video to Watch later', t.watchLater, T.watchLaterMin, `${t.watchLater} / ${T.watchLaterMin}+`)}
         ${counter('searches', 'Search on YouTube (different searches)', t.searches, T.searchesMin, `${t.searches} / ${T.searchesMin}+`,
           day.searches.length ? `<div class="w-names">${day.searches.map((q) => `<span>🔍 ${esc(q)}</span>`).join('')}</div>` : '')}
         <div class="w-device muted">Device: ${deviceText} · Same device ${s.devices.sameDays}/${T.days} days</div>
       </div>
 
       <h3>One-time setup</h3>
-      <label class="w-gmail">Gmail created <input type="month" data-action="gmail" value="${esc(c.gmailCreated)}" /> <span class="muted">${ageText}</span></label>
+      <div class="w-gmail"><span>Gmail created</span>${monthPicker('detail', c.gmailCreated)}<span class="muted">${ageText}</span></div>
       <div class="w-setup">${setup}</div>
 
       ${uploadsHtml(c, s)}
@@ -417,10 +455,34 @@
   // ---------- Actions ----------
 
   root.addEventListener('click', async (e) => {
+    if (picker && !e.target.closest('.mp')) {
+      picker = null;
+      render();
+    }
     const el = e.target.closest('[data-action]');
     if (!el) return;
     const action = el.dataset.action;
-    if (action === 'open') {
+    if (action === 'mp-toggle') {
+      document.activeElement?.blur?.(); // leave the name field so the picker can draw
+      const scope = el.dataset.scope;
+      const current = scope === 'add' ? addGmail : data.channels.find((c) => c.id === openId)?.gmailCreated;
+      picker = picker?.scope === scope ? null : { scope, year: /^\d{4}/.test(current || '') ? Number(current.slice(0, 4)) : new Date().getFullYear() };
+      render();
+    } else if (action === 'mp-year') {
+      picker.year = Math.min(new Date().getFullYear(), Math.max(GMAIL_START, picker.year + Number(el.dataset.delta)));
+      render();
+    } else if (action === 'mp-pick' || action === 'mp-clear') {
+      const value = action === 'mp-clear' ? '' : el.dataset.value;
+      const scope = picker?.scope;
+      picker = null;
+      if (scope === 'add') {
+        addGmail = value;
+        render();
+      } else {
+        await send({ type: 'warm:updateChannel', id: openId, patch: { gmailCreated: value } });
+        render();
+      }
+    } else if (action === 'open') {
       openId = el.dataset.id;
       selectedDate = TVWarm.dateKey();
       render();
@@ -433,6 +495,8 @@
       root.querySelector('[name=name]')?.focus();
     } else if (action === 'cancel-add') {
       adding = false;
+      addName = '';
+      addGmail = '';
       render();
     } else if (action === 'add-signed-in') {
       const id = (await send({ type: 'warm:addChannel', channel: { name: account.name || account.handle, handle: account.handle, ytChannelId: account.ytChannelId, avatar: account.avatar } }))?.result;
@@ -449,8 +513,11 @@
       live = { kind: 'idle' };
       render();
       setTimeout(pollStatus, 3500);
-    } else if (action === 'force-unlock') {
-      send({ type: 'warm:updateChannel', id: openId, patch: { forceUnlocked: true } }).then(() => send({ type: 'warm:syncUploads', id: openId }));
+    } else if (action === 'force-unlock' || action === 'not-new') {
+      await send({ type: 'warm:updateChannel', id: openId, patch: action === 'not-new' ? { forceUnlocked: true, notNew: true } : { forceUnlocked: true } });
+      send({ type: 'warm:syncUploads', id: openId });
+    } else if (action === 'relock') {
+      send({ type: 'warm:updateChannel', id: openId, patch: { forceUnlocked: false, notNew: false } });
     } else if (action === 'sync-uploads') {
       el.disabled = true;
       el.textContent = 'Checking…';
@@ -473,6 +540,16 @@
         openId = null;
         render();
       }
+    }
+  });
+
+  root.addEventListener('input', (e) => {
+    if (e.target.name === 'name' && e.target.closest('[data-form=add]')) addName = e.target.value;
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && picker) {
+      picker = null;
+      render();
     }
   });
 
@@ -505,8 +582,6 @@
       el.blur(); // let the view refresh again
     } else if (action === 'setup') {
       send({ type: 'warm:updateChannel', id: openId, patch: { setup: { [el.dataset.key]: el.checked } } });
-    } else if (action === 'gmail') {
-      send({ type: 'warm:updateChannel', id: openId, patch: { gmailCreated: el.value } });
     } else if (action === 'make-active') {
       send({ type: 'warm:setActive', id: el.checked ? openId : null });
     } else if (action === 'set-active') {
@@ -536,8 +611,10 @@
     if (f.dataset.form !== 'add') return;
     const name = f.name.value.trim();
     if (!name) return;
-    const id = (await send({ type: 'warm:addChannel', channel: { name, gmailCreated: f.gmail.value } }))?.result;
+    const id = (await send({ type: 'warm:addChannel', channel: { name, gmailCreated: addGmail } }))?.result;
     adding = false;
+    addName = '';
+    addGmail = '';
     if (id) openId = id;
     render();
   });

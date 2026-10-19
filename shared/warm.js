@@ -3,16 +3,17 @@
 // Data shape (chrome.storage.local, key "tubevault:warm"):
 // {
 //   activeId,                       // channel credited when the signed-in account can't be detected
-//   channels: [{ id, name, handle, avatar, gmailCreated: 'YYYY-MM', startDate: 'YYYY-MM-DD', niche,
-//                setup: { niche, twoStep, name, pic, phone, features, idVerified, madeForKids } }],
+//   channels: [{ id, name, handle, avatar, gmailCreated: 'YYYY-MM', startDate: 'YYYY-MM-DD',
+//                forceUnlocked, notNew,   // first uploads unlocked by hand / "this isn't a new channel"
+//                setup: { twoStep, name, pic, phone, features, idVerified, madeForKids, vidiq } }],
 //   days: { [channelId]: { 'YYYY-MM-DD': Day } }
 // }
 //   settings: { reminder: true, reminderTime: '19:00' }
 // Channel also has uploads: [{ id, videoId, title, publishedAt, collab, checks: { '8': Check, ... } }]
 //   Check = { views, impressions, ctr, source, autoViews }
 // Day = { watchSec, subs: { [channelKey]: name }, subsAt: { [channelKey]: time },
-//         comments: [{ at, words, sig, dup }], likes: { [videoId]: 1 },
-//         searches: [query], devices: { [deviceId]: 1 }, adj: { watchMin, subs, comments, likes, searches } }
+//         comments: [{ at, words, sig, dup }], likes: { [videoId]: 1 }, watchLater: { [videoId]: 1 },
+//         searches: [query], devices: { [deviceId]: 1 }, adj: { watchMin, subs, comments, likes, searches, watchLater } }
 var TVWarm = (() => {
   const KEY = 'tubevault:warm';
 
@@ -22,9 +23,10 @@ var TVWarm = (() => {
     subsMax: 5,
     commentsMin: 2,
     commentsTarget: 3,
-    likesMin: 5,
-    likesTarget: 10,
-    searchesMin: 4, // different searches a day
+    likesMin: 3,
+    likesTarget: 5,
+    searchesMin: 3, // different searches a day
+    watchLaterMin: 1, // videos added to Watch later a day
     days: 7,
     minCommentWords: 6, // shorter comments are flagged and don't count
     fastSubs: 3, // this many subscribes...
@@ -43,12 +45,12 @@ var TVWarm = (() => {
     { key: 'external', label: 'External', pushed: false },
     { key: 'other', label: 'Other', pushed: false },
   ];
+  const TASK_COUNT = 6; // daily tasks: watch, subscribe, comment, like, search, Watch later
   const DEFAULT_SETTINGS = { reminder: true, reminderTime: '19:00' };
 
   const SETUP_ITEMS = [
-    { key: 'niche', label: 'Picked a niche I actually watch', points: 1 },
     { key: 'twoStep', label: '2-step verification on the Gmail', points: 5, must: true },
-    { key: 'name', label: 'Channel name set', points: 1 },
+    { key: 'name', label: 'Channel name set', points: 2 },
     { key: 'pic', label: 'Profile picture set', points: 2 },
     { key: 'phone', label: 'Phone number verified', points: 5, must: true, hint: 'Studio → Settings → Channel → Feature eligibility' },
     { key: 'features', label: 'Intermediate + advanced features on', points: 2, hint: 'Studio → Settings → Channel → Feature eligibility' },
@@ -61,7 +63,7 @@ var TVWarm = (() => {
   const dateKey = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const uid = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36);
 
-  const emptyDay = () => ({ watchSec: 0, subs: {}, subsAt: {}, comments: [], likes: {}, searches: [], devices: {}, adj: {} });
+  const emptyDay = () => ({ watchSec: 0, subs: {}, subsAt: {}, comments: [], likes: {}, searches: [], watchLater: {}, devices: {}, adj: {} });
 
   async function load() {
     const res = await chrome.storage.local.get(KEY);
@@ -95,6 +97,7 @@ var TVWarm = (() => {
       dupComments,
       likes: add(Object.keys(day.likes).length, adj.likes),
       searches: add(day.searches.length, adj.searches),
+      watchLater: add(Object.keys(day.watchLater || {}).length, adj.watchLater),
     };
   }
 
@@ -120,22 +123,23 @@ var TVWarm = (() => {
     const subsOver = t.subs > TARGETS.subsMax;
     const parts = {
       watch: Math.min(t.watchSec / TARGETS.watchSec, 1) * 3,
-      subs: subsOver ? 0 : Math.min(t.subs / TARGETS.subsMin, 1) * 2,
+      subs: subsOver ? 0 : Math.min(t.subs / TARGETS.subsMin, 1) * 1.5,
       comments: Math.min(t.comments / TARGETS.commentsMin, 1) * 1.5,
       likes: Math.min(t.likes / TARGETS.likesMin, 1) * 1,
       search: Math.min(t.searches / TARGETS.searchesMin, 1) * 0.5,
+      watchLater: Math.min(t.watchLater / TARGETS.watchLaterMin, 1) * 0.5,
     };
     const points = Object.values(parts).reduce((a, b) => a + b, 0);
-    const done =
-      t.watchSec >= TARGETS.watchSec && t.subs >= TARGETS.subsMin && !subsOver && t.comments >= TARGETS.commentsMin;
-    const active = t.watchSec > 0 || t.subs || t.comments || t.likes || t.searches;
+    const active = t.watchSec > 0 || t.subs || t.comments || t.likes || t.searches || t.watchLater;
     const tasks = [
       t.watchSec >= TARGETS.watchSec,
       t.subs >= TARGETS.subsMin && !subsOver,
       t.comments >= TARGETS.commentsMin,
       t.likes >= TARGETS.likesMin,
       t.searches >= TARGETS.searchesMin,
+      t.watchLater >= TARGETS.watchLaterMin,
     ].filter(Boolean).length;
+    const done = tasks === TASK_COUNT; // a day counts when every daily task is met
     return { totals: t, parts, points, done, subsOver, tooFast: subsTooFast(day), tasks, active: !!active };
   }
 
@@ -267,17 +271,15 @@ var TVWarm = (() => {
     return Math.floor((today - start) / 86400000) + 1;
   }
 
-  // First uploads: locked until day 5, can be unlocked early from day 5, opens by itself on day 7
-  // (or as soon as the channel is Good to start).
-  const FORCE_DAY = 5;
+  // First uploads: locked while warming. It opens by itself on day 7 or once the channel is Good to start,
+  // and can be unlocked by hand at any time (e.g. someone not warming for days, or an existing channel).
   const AUTO_DAY = 7;
   function uploadsAccess(channel, verdict) {
     const day = dayNumber(channel);
+    if (channel.forceUnlocked) return { state: 'unlocked', day, why: channel.notNew ? 'Existing channel' : 'Unlocked by hand' };
     if (verdict === 'green') return { state: 'unlocked', day, why: 'Good to start' };
     if (day >= AUTO_DAY) return { state: 'unlocked', day, why: `Day ${AUTO_DAY} reached` };
-    if (day >= FORCE_DAY && channel.forceUnlocked) return { state: 'unlocked', day, why: 'Unlocked early' };
-    if (day >= FORCE_DAY) return { state: 'can-force', day, autoIn: AUTO_DAY - day };
-    return { state: 'locked', day, forceIn: FORCE_DAY - day, autoIn: AUTO_DAY - day };
+    return { state: 'locked', day, autoIn: AUTO_DAY - day };
   }
 
   // Parses YouTube's public channel feed (latest 15 videos). Regex-based so it also works in the service worker.
@@ -307,6 +309,6 @@ var TVWarm = (() => {
     };
   }
 
-  return { applyProfile, matchChannel, dayNumber, uploadsAccess, parseFeed, FORCE_DAY, AUTO_DAY, CHECKPOINTS, SOURCES, DEFAULT_SETTINGS, subsTooFast, commentSig, latestCheck, uploadVerdict, uploadsDecision,
+  return { applyProfile, matchChannel, dayNumber, uploadsAccess, parseFeed, AUTO_DAY, TASK_COUNT, CHECKPOINTS, SOURCES, DEFAULT_SETTINGS, subsTooFast, commentSig, latestCheck, uploadVerdict, uploadsDecision,
     KEY, TARGETS, SETUP_ITEMS, dateKey, uid, emptyDay, load, save, getDay, totals, dayStatus, gmailAgeMonths, score };
 })();

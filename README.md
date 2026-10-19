@@ -34,7 +34,14 @@ TubeVault isn't in the Chrome Web Store, so you load it yourself. It takes about
 Warm up a new channel for 7 days before your first upload. You get a 0–100 Trust Score and a verdict: 🔴 Keep warming, 🟡 Almost there, 🟢 Good to start.
 
 - **Start:** sign in to YouTube as your new channel, open the Warm Tracker tab, and click **+ Add @yourchannel**. You can track several channels at once.
-- **Auto-tracked on YouTube:** watch time (one clock, so videos playing at the same time aren't added together), subscribes, likes, comments and searches.
+- **Daily checklist** (any videos and any channels, no niche needed). A day counts once every task is met:
+  - **Watch** 2 hours (one clock, so videos playing at the same time aren't added together)
+  - **Subscribe** to 3–5 channels
+  - **Comment** 2+ times, in full sentences
+  - **Like** 3–5 videos
+  - **Search** YouTube 3+ times (different searches)
+  - **Add 1 video to Watch later** (from the thumbnail clock, the player, the Save dialog or the ⋮ menu)
+  - All of it is tracked automatically on YouTube.
   - Corrections: drag the watch-time slider, or use −/+ on the other counts.
 - **Is it tracking?** The status line at the top of the Warm Tracker tab tells you, e.g. "● Tracking Paper Balance · video playing, counting watch time · counted 5s ago". Tracking runs inside your youtube.com tabs, so the sidebar does **not** need to be open. If you see a ⚠ instead:
   - **"Not tracking on this tab":** press **Reload tab** (this happens when the extension was updated after the tab opened).
@@ -48,8 +55,8 @@ Warm up a new channel for 7 days before your first upload. You get a 0–100 Tru
   - **You're told what changed:** e.g. "Updated Paper Balance: username and picture changed on YouTube."
 - **Toolbar badge:** shows today's tasks done (e.g. 3/5), or ✓ when the day is complete.
 - **Daily reminder:** a notification at the time you choose (default 7 pm) if today isn't done.
-- **First uploads:** shown from day 1 but locked.
-  - **Day 5:** you can unlock it early. **Day 7, or once the channel is 🟢:** it unlocks by itself.
+- **First uploads:** shown from day 1 but locked while you warm up.
+  - **Unlock any time** with **Unlock now**, or **This channel isn't new** for a channel that already exists. Otherwise it opens by itself on day 7, or once the channel is 🟢. **Lock again** undoes a manual unlock.
   - **Once unlocked:** TubeVault checks your channel's public feed every 30 minutes. It automatically tracks videos published since the warm-up started (up to 5) and fills in their views. **Refresh** checks right away.
   - **Check-ins:** at 8h, 24h, 48h and 72h. Impressions, CTR and traffic source exist only in YouTube Studio: **Open in Studio** goes straight to the video's Reach tab.
   - **Verdicts:** each video gets one ("YouTube is pushing it" / "Not being pushed"), and the channel gets an overall call.
@@ -60,10 +67,10 @@ YouTube doesn't publish a trust score. This is TubeVault's own checklist score f
 
 | Part | Points |
 |---|---|
-| Gmail age (you enter the month it was created) | 20 |
+| Gmail age (you pick the month and year it was created) | 20 |
 | Account security (2-step verification, phone verified) | 10 |
-| Channel basics (name, picture, feature eligibility, Made for Kids off, niche, ID, VidIQ) | 10 |
-| Warm-up days (best 7 days: 2h watching, 3–5 subscribes, 2+ comments, 5+ likes, 4+ searches) | 56 |
+| Channel basics (name, picture, feature eligibility, Made for Kids off, ID, VidIQ) | 10 |
+| Warm-up days (best 7 days: 2h watching, 3–5 subscribes, 2+ comments, 3+ likes, 3+ searches, 1 Watch later) | 56 |
 | Same device all week | 4 |
 
 🟢 **Good to start** needs 80+, 2-step on, phone verified, and 7 warm-up days done.
