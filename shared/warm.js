@@ -17,16 +17,20 @@
 var TVWarm = (() => {
   const KEY = 'tubevault:warm';
 
+  // Each daily task has a minimum (counts for the day, bar turns light green) and a goal (full green).
   const TARGETS = {
-    watchSec: 2 * 3600,
-    subsMin: 3,
-    subsMax: 5,
-    commentsMin: 2,
-    commentsTarget: 3,
-    likesMin: 3,
-    likesTarget: 5,
-    searchesMin: 3, // different searches a day
-    watchLaterMin: 1, // videos added to Watch later a day
+    watchMinSec: 30 * 60,
+    watchSec: 2 * 3600, // goal
+    subsMin: 1,
+    subsTarget: 3,
+    subsMax: 5, // more than this in a day looks spammy and doesn't count
+    commentsMin: 3,
+    commentsTarget: 5,
+    likesMin: 2,
+    likesTarget: 3,
+    searchesMin: 1, // different searches a day
+    searchesTarget: 1,
+    watchLaterMin: 1, // optional: shown, but not needed for the day
     days: 7,
     minCommentWords: 6, // shorter comments are flagged and don't count
     fastSubs: 3, // this many subscribes...
@@ -45,7 +49,7 @@ var TVWarm = (() => {
     { key: 'external', label: 'External', pushed: false },
     { key: 'other', label: 'Other', pushed: false },
   ];
-  const TASK_COUNT = 6; // daily tasks: watch, subscribe, comment, like, search, Watch later
+  const TASK_COUNT = 5; // required daily tasks: watch, subscribe, comment, like, search (Watch later is optional)
   const DEFAULT_SETTINGS = { reminder: true, reminderTime: '19:00' };
 
   const SETUP_ITEMS = [
@@ -118,28 +122,35 @@ var TVWarm = (() => {
     return (h >>> 0).toString(36);
   }
 
+  // 'full' at the goal, 'min' at the minimum, '' below it. Drives the bar colours.
+  const levelOf = (value, min, goal) => (value >= goal ? 'full' : value >= min ? 'min' : '');
+
+  // Points for one task: reaching the minimum earns 75%, the rest comes on the way to the goal.
+  function credit(value, min, goal) {
+    if (value < min) return 0.75 * (value / min);
+    return goal > min ? 0.75 + 0.25 * Math.min((value - min) / (goal - min), 1) : 1;
+  }
+
   function dayStatus(day) {
     const t = totals(day);
     const subsOver = t.subs > TARGETS.subsMax;
     const parts = {
-      watch: Math.min(t.watchSec / TARGETS.watchSec, 1) * 3,
-      subs: subsOver ? 0 : Math.min(t.subs / TARGETS.subsMin, 1) * 1.5,
-      comments: Math.min(t.comments / TARGETS.commentsMin, 1) * 1.5,
-      likes: Math.min(t.likes / TARGETS.likesMin, 1) * 1,
-      search: Math.min(t.searches / TARGETS.searchesMin, 1) * 0.5,
-      watchLater: Math.min(t.watchLater / TARGETS.watchLaterMin, 1) * 0.5,
+      watch: credit(t.watchSec, TARGETS.watchMinSec, TARGETS.watchSec) * 3,
+      subs: subsOver ? 0 : credit(t.subs, TARGETS.subsMin, TARGETS.subsTarget) * 1.5,
+      comments: credit(t.comments, TARGETS.commentsMin, TARGETS.commentsTarget) * 1.5,
+      likes: credit(t.likes, TARGETS.likesMin, TARGETS.likesTarget) * 1,
+      search: credit(t.searches, TARGETS.searchesMin, TARGETS.searchesTarget) * 1,
     };
     const points = Object.values(parts).reduce((a, b) => a + b, 0);
     const active = t.watchSec > 0 || t.subs || t.comments || t.likes || t.searches || t.watchLater;
     const tasks = [
-      t.watchSec >= TARGETS.watchSec,
+      t.watchSec >= TARGETS.watchMinSec,
       t.subs >= TARGETS.subsMin && !subsOver,
       t.comments >= TARGETS.commentsMin,
       t.likes >= TARGETS.likesMin,
       t.searches >= TARGETS.searchesMin,
-      t.watchLater >= TARGETS.watchLaterMin,
     ].filter(Boolean).length;
-    const done = tasks === TASK_COUNT; // a day counts when every daily task is met
+    const done = tasks === TASK_COUNT; // the day turns green once every required minimum is met
     return { totals: t, parts, points, done, subsOver, tooFast: subsTooFast(day), tasks, active: !!active };
   }
 
@@ -309,6 +320,6 @@ var TVWarm = (() => {
     };
   }
 
-  return { applyProfile, matchChannel, dayNumber, uploadsAccess, parseFeed, AUTO_DAY, TASK_COUNT, CHECKPOINTS, SOURCES, DEFAULT_SETTINGS, subsTooFast, commentSig, latestCheck, uploadVerdict, uploadsDecision,
+  return { levelOf, applyProfile, matchChannel, dayNumber, uploadsAccess, parseFeed, AUTO_DAY, TASK_COUNT, CHECKPOINTS, SOURCES, DEFAULT_SETTINGS, subsTooFast, commentSig, latestCheck, uploadVerdict, uploadsDecision,
     KEY, TARGETS, SETUP_ITEMS, dateKey, uid, emptyDay, load, save, getDay, totals, dayStatus, gmailAgeMonths, score };
 })();

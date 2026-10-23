@@ -529,14 +529,13 @@ async function sendReminder() {
     if (st.done) continue;
     const t = st.totals;
     const left = [];
-    const mins = Math.ceil((TVWarm.TARGETS.watchSec - t.watchSec) / 60);
+    const mins = Math.ceil((TVWarm.TARGETS.watchMinSec - t.watchSec) / 60);
     if (mins > 0) left.push(`${mins} min watching`);
     const n = (k, word) => `${k} ${word}${k === 1 ? '' : 's'}`;
     if (t.subs < TVWarm.TARGETS.subsMin) left.push(n(TVWarm.TARGETS.subsMin - t.subs, 'subscribe'));
     if (t.comments < TVWarm.TARGETS.commentsMin) left.push(n(TVWarm.TARGETS.commentsMin - t.comments, 'comment'));
     if (t.likes < TVWarm.TARGETS.likesMin) left.push(n(TVWarm.TARGETS.likesMin - t.likes, 'like'));
     if (t.searches < TVWarm.TARGETS.searchesMin) left.push(n(TVWarm.TARGETS.searchesMin - t.searches, 'search'));
-    if (t.watchLater < TVWarm.TARGETS.watchLaterMin) left.push('1 Watch later');
     lines.push(`${c.name}: ${left.join(', ')} left`);
   }
   if (!lines.length) return;

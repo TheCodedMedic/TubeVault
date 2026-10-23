@@ -216,33 +216,44 @@
       ${reminder}`;
   }
 
-  function counter(field, label, value, target, display, extra = '') {
-    return `<div class="w-counter">
+  // A daily task: light green once the minimum is reached (counts for today), full green at the goal.
+  // The tick on the bar marks the minimum.
+  function counter(field, label, value, min, goal, extra = '', { optional = false, over = false } = {}) {
+    const level = over ? 'over' : TVWarm.levelOf(value, min, goal);
+    const tick = goal > min ? `<i class="w-tick" style="left:${(min / goal) * 100}%" title="Minimum: ${min}"></i>` : '';
+    const minNote = optional ? 'optional' : goal > min ? `min ${min}` : '';
+    return `<div class="w-counter ${level}">
       <div class="w-counter-top">
         <span class="w-counter-label">${label}</span>
-        <span class="w-counter-value">${display}</span>
+        <span class="w-counter-value">${value} / ${goal}+${minNote ? ` <small>${minNote}</small>` : ''}</span>
         <span class="w-steppers">
-          <button type="button" data-action="adjust" data-field="${field}" data-delta="${field === 'watchMin' ? -15 : -1}">−</button>
-          <button type="button" data-action="adjust" data-field="${field}" data-delta="${field === 'watchMin' ? 15 : 1}">+</button>
+          <button type="button" data-action="adjust" data-field="${field}" data-delta="-1">−</button>
+          <button type="button" data-action="adjust" data-field="${field}" data-delta="1">+</button>
         </span>
       </div>
-      <div class="w-bar"><span style="width:${Math.min(100, (value / target) * 100)}%"></span></div>
+      <div class="w-bar ${level}"><span style="width:${Math.min(100, (value / goal) * 100)}%"></span>${tick}</div>
       ${extra}
     </div>`;
   }
 
-  // Watch time: auto-tracked, corrected with a slider (5-minute steps) instead of big +/- jumps.
+  // Watch time: auto-tracked, corrected with a slider (5-minute steps). Marks at 30m (the minimum) and 1h;
+  // light green from 30 minutes, full green at the 2h goal.
+  const watchLevel = (minutes) => TVWarm.levelOf(minutes * 60, T.watchMinSec, T.watchSec);
   function watchRow(sec) {
     const min = Math.round(sec / 60);
     const max = Math.max(240, Math.ceil(min / 60) * 60);
-    return `<div class="w-counter">
+    const pct = (m) => (m / max) * 100;
+    return `<div class="w-counter ${watchLevel(min)}">
       <div class="w-counter-top">
         <span class="w-counter-label">Watch videos</span>
-        <span class="w-counter-value" data-watch-label>${fmtTime(sec)} / 2h</span>
+        <span class="w-counter-value" data-watch-label>${fmtTime(sec)} / 2h <small>min 30m</small></span>
       </div>
-      <input type="range" class="w-slider" data-action="watch-slider" min="0" max="${max}" step="5" value="${min}"
-        style="--fill:${(min / max) * 100}%; --goal:${(120 / max) * 100}%" aria-label="Watch time in minutes" />
-      <div class="w-slider-scale muted"><span>0</span><span>2h goal</span><span>${max / 60}h</span></div>
+      <input type="range" class="w-slider ${watchLevel(min)}" data-action="watch-slider" min="0" max="${max}" step="5" value="${min}"
+        style="--fill:${pct(min)}%; --t30:${pct(30)}%; --t60:${pct(60)}%; --goal:${pct(120)}%" aria-label="Watch time in minutes" />
+      <div class="w-slider-scale muted">
+        <span style="left:0">0</span><span style="left:${pct(30)}%">30m</span><span style="left:${pct(60)}%">1h</span>
+        <span style="left:${pct(120)}%">2h goal</span><span style="left:100%">${max / 60}h</span>
+      </div>
     </div>`;
   }
 
@@ -424,18 +435,18 @@
       <div class="w-chips">${chips}</div>
       <div class="w-day">
         ${watchRow(t.watchSec)}
-        ${counter('subs', 'Subscribe to channels', t.subs, T.subsMin, `${t.subs} / ${T.subsMin}–${T.subsMax}`,
+        ${counter('subs', 'Subscribe to channels', t.subs, T.subsMin, T.subsTarget,
           `<div class="w-hint">💡 Tip: favour channels run by real people over AI channels.</div>` +
           (st.subsOver ? `<div class="w-warn">More than ${T.subsMax} today: subscribes don't count for this day.</div>` : '') +
           (st.tooFast ? `<div class="w-warn">${T.fastSubs}+ subscribes within 2 minutes. Spread them out across your watching session.</div>` : '') +
-          (subNames.length ? `<div class="w-names">${subNames.map((n) => `<span>${esc(n)}</span>`).join('')}</div>` : ''))}
-        ${counter('comments', 'Comment (full sentences)', t.comments, T.commentsMin, `${t.comments} / ${T.commentsMin}–${T.commentsTarget}`,
+          (subNames.length ? `<div class="w-names">${subNames.map((n) => `<span>${esc(n)}</span>`).join('')}</div>` : ''), { over: st.subsOver })}
+        ${counter('comments', 'Comment (full sentences)', t.comments, T.commentsMin, T.commentsTarget,
           (t.shortComments ? `<div class="w-warn">${t.shortComments} comment${t.shortComments === 1 ? ' was' : 's were'} too short (under ${T.minCommentWords} words), not counted.</div>` : '') +
           (t.dupComments ? `<div class="w-warn">${t.dupComments} copy-pasted comment${t.dupComments === 1 ? '' : 's'} (same text as before), not counted.</div>` : ''))}
-        ${counter('likes', 'Like videos you watched', t.likes, T.likesMin, `${t.likes} / ${T.likesMin}–${T.likesTarget}`)}
-        ${counter('watchLater', 'Add a video to Watch later', t.watchLater, T.watchLaterMin, `${t.watchLater} / ${T.watchLaterMin}+`)}
-        ${counter('searches', 'Search on YouTube (different searches)', t.searches, T.searchesMin, `${t.searches} / ${T.searchesMin}+`,
+        ${counter('likes', 'Like videos you watched', t.likes, T.likesMin, T.likesTarget)}
+        ${counter('searches', 'Search on YouTube', t.searches, T.searchesMin, T.searchesTarget,
           day.searches.length ? `<div class="w-names">${day.searches.map((q) => `<span>🔍 ${esc(q)}</span>`).join('')}</div>` : '')}
+        ${counter('watchLater', 'Add a video to Watch later', t.watchLater, T.watchLaterMin, T.watchLaterMin, '', { optional: true })}
         <div class="w-device muted">Device: ${deviceText} · Same device ${s.devices.sameDays}/${T.days} days</div>
       </div>
 
@@ -558,8 +569,13 @@
     const el = e.target;
     if (el.dataset.action !== 'watch-slider') return;
     const label = root.querySelector('[data-watch-label]');
-    if (label) label.textContent = `${fmtTime(el.value * 60)} / 2h`;
+    if (label) label.innerHTML = `${fmtTime(el.value * 60)} / 2h <small>min 30m</small>`;
     el.style.setProperty('--fill', `${(el.value / el.max) * 100}%`);
+    const level = watchLevel(Number(el.value));
+    for (const node of [el, el.closest('.w-counter')]) {
+      node.classList.remove('min', 'full');
+      if (level) node.classList.add(level);
+    }
   });
 
   root.addEventListener('change', (e) => {

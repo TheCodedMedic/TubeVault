@@ -34,13 +34,17 @@ TubeVault isn't in the Chrome Web Store, so you load it yourself. It takes about
 Warm up a new channel for 7 days before your first upload. You get a 0–100 Trust Score and a verdict: 🔴 Keep warming, 🟡 Almost there, 🟢 Good to start.
 
 - **Start:** sign in to YouTube as your new channel, open the Warm Tracker tab, and click **+ Add @yourchannel**. You can track several channels at once.
-- **Daily checklist** (any videos and any channels, no niche needed). A day counts once every task is met:
-  - **Watch** 2 hours (one clock, so videos playing at the same time aren't added together)
-  - **Subscribe** to 3–5 channels
-  - **Comment** 2+ times, in full sentences
-  - **Like** 3–5 videos
-  - **Search** YouTube 3+ times (different searches)
-  - **Add 1 video to Watch later** (from the thumbnail clock, the player, the Save dialog or the ⋮ menu)
+- **Daily checklist** (any videos and any channels, no niche needed). Each task has a **minimum** and a **goal**: its bar turns light green at the minimum and full green at the goal. The day turns green ✓ once every minimum is met.
+
+  | Task | Minimum (counts for the day) | Goal |
+  |---|---|---|
+  | Watch videos (one clock, overlapping videos aren't added together) | 30 min | 2 h (bar marks at 30m and 1h) |
+  | Subscribe to channels (max 5 a day) | 1 | 3+ |
+  | Comment, in full sentences | 3 | 5+ |
+  | Like videos you watched | 2 | 3+ |
+  | Search on YouTube | 1 | 1+ |
+  | Add a video to Watch later | optional | |
+
   - All of it is tracked automatically on YouTube.
   - Corrections: drag the watch-time slider, or use −/+ on the other counts.
 - **Is it tracking?** The status line at the top of the Warm Tracker tab tells you, e.g. "● Tracking Paper Balance · video playing, counting watch time · counted 5s ago". Tracking runs inside your youtube.com tabs, so the sidebar does **not** need to be open. If you see a ⚠ instead:
@@ -53,7 +57,7 @@ Warm up a new channel for 7 days before your first upload. You get a 0–100 Tru
 - **Profile stays up to date:** a channel's name, @username and picture can change, but its channel ID never does. TubeVault matches by ID, so a renamed channel is never mistaken for a new one.
   - **Updates when:** you open the sidebar, press ↻, or (every few hours, even with no YouTube tab open) in the background.
   - **You're told what changed:** e.g. "Updated Paper Balance: username and picture changed on YouTube."
-- **Toolbar badge:** shows today's tasks done (e.g. 3/5), or ✓ when the day is complete.
+- **Toolbar badge:** shows today's minimums met (e.g. 3/5), or ✓ when the day is green.
 - **Daily reminder:** a notification at the time you choose (default 7 pm) if today isn't done.
 - **First uploads:** shown from day 1 but locked while you warm up.
   - **Unlock any time** with **Unlock now**, or **This channel isn't new** for a channel that already exists. Otherwise it opens by itself on day 7, or once the channel is 🟢. **Lock again** undoes a manual unlock.
@@ -70,7 +74,7 @@ YouTube doesn't publish a trust score. This is TubeVault's own checklist score f
 | Gmail age (you pick the month and year it was created) | 20 |
 | Account security (2-step verification, phone verified) | 10 |
 | Channel basics (name, picture, feature eligibility, Made for Kids off, ID, VidIQ) | 10 |
-| Warm-up days (best 7 days: 2h watching, 3–5 subscribes, 2+ comments, 3+ likes, 3+ searches, 1 Watch later) | 56 |
+| Warm-up days (best 7 days; meeting a task's minimum earns 75% of its points, reaching its goal earns the rest) | 56 |
 | Same device all week | 4 |
 
 🟢 **Good to start** needs 80+, 2-step on, phone verified, and 7 warm-up days done.
