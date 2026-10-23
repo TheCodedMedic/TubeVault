@@ -57,8 +57,9 @@ Warm up a new channel for 7 days before your first upload. You get a 0–100 Tru
 - **Profile stays up to date:** a channel's name, @username and picture can change, but its channel ID never does. TubeVault matches by ID, so a renamed channel is never mistaken for a new one.
   - **Updates when:** you open the sidebar, press ↻, or (every few hours, even with no YouTube tab open) in the background.
   - **You're told what changed:** e.g. "Updated Paper Balance: username and picture changed on YouTube."
+- **When does a new day start?** At midnight in the time zone shown under the Warm Tracker list (**"New day starts at midnight in"**). It defaults to the browser's own clock. If a browser profile is set to another country's time zone (common with anti-detect profiles matched to a proxy), pick your own time zone there, or the day will reset hours early or late. The day view shows which day it is using, e.g. "Today: Fri 23 Oct · resets at midnight Africa/Lagos".
 - **Toolbar badge:** shows today's minimums met (e.g. 3/5), or ✓ when the day is green.
-- **Daily reminder:** a notification at the time you choose (default 7 pm) if today isn't done.
+- **Daily reminder:** a notification at the time you choose (default 7 pm, in that same time zone) if today isn't done.
 - **First uploads:** shown from day 1 but locked while you warm up.
   - **Unlock any time** with **Unlock now**, or **This channel isn't new** for a channel that already exists. Otherwise it opens by itself on day 7, or once the channel is 🟢. **Lock again** undoes a manual unlock.
   - **Once unlocked:** TubeVault checks your channel's public feed every 30 minutes. It automatically tracks videos published since the warm-up started (up to 5) and fills in their views. **Refresh** checks right away.

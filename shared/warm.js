@@ -50,7 +50,8 @@ var TVWarm = (() => {
     { key: 'other', label: 'Other', pushed: false },
   ];
   const TASK_COUNT = 5; // required daily tasks: watch, subscribe, comment, like, search (Watch later is optional)
-  const DEFAULT_SETTINGS = { reminder: true, reminderTime: '19:00' };
+  // timeZone: where "today" starts and ends ('' = the browser's own time zone).
+  const DEFAULT_SETTINGS = { reminder: true, reminderTime: '19:00', timeZone: '' };
 
   const SETUP_ITEMS = [
     { key: 'twoStep', label: '2-step verification on the Gmail', points: 5, must: true },
@@ -64,7 +65,58 @@ var TVWarm = (() => {
   ];
 
   const pad = (n) => String(n).padStart(2, '0');
-  const dateKey = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  // ---------- Days and time zones ----------
+  // A day runs midnight to midnight in the chosen time zone. Browsers with a spoofed time zone (anti-detect
+  // profiles matched to a proxy country) would otherwise start the day hours early or late.
+
+  const browserTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const validTimeZone = (tz) => {
+    try {
+      return !!tz && !!new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    } catch {
+      return false;
+    }
+  };
+  let dayTimeZone = ''; // set from settings by load()
+  const setTimeZone = (tz) => (dayTimeZone = validTimeZone(tz) ? tz : '');
+  const activeTimeZone = () => dayTimeZone || browserTimeZone();
+
+  // Wall-clock parts of a moment in a time zone.
+  function zonedParts(t, tz) {
+    const p = {};
+    for (const { type, value } of new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+    }).formatToParts(t)) p[type] = value;
+    return { y: +p.year, m: +p.month, d: +p.day, h: +p.hour % 24, min: +p.minute };
+  }
+
+  const dateKey = (d = new Date()) => {
+    if (!dayTimeZone) return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const p = zonedParts(d, dayTimeZone);
+    return `${p.y}-${pad(p.m)}-${pad(p.d)}`;
+  };
+
+  // Date-key arithmetic without time zones getting in the way.
+  const keyToUTC = (key) => {
+    const [y, m, d] = key.split('-').map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  const addDays = (key, n) => new Date(keyToUTC(key) + n * 86400000).toISOString().slice(0, 10);
+  const daysBetween = (a, b) => Math.round((keyToUTC(b) - keyToUTC(a)) / 86400000);
+
+  // The moment it is hh:mm on a given day in the active time zone.
+  function zonedTime(key, hh = 0, mm = 0) {
+    const tz = activeTimeZone();
+    const [y, m, d] = key.split('-').map(Number);
+    let t = Date.UTC(y, m - 1, d, hh, mm);
+    for (let i = 0; i < 2; i++) {
+      const p = zonedParts(t, tz);
+      t -= Date.UTC(p.y, p.m - 1, p.d, p.h, p.min) - Date.UTC(y, m - 1, d, hh, mm);
+    }
+    return t;
+  }
+  const nextMidnight = () => zonedTime(addDays(dateKey(), 1), 0, 0);
+  const timeIn = (tz) => new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit' }).format(new Date());
   const uid = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36);
 
   const emptyDay = () => ({ watchSec: 0, subs: {}, subsAt: {}, comments: [], likes: {}, searches: [], watchLater: {}, devices: {}, adj: {} });
@@ -72,6 +124,7 @@ var TVWarm = (() => {
   async function load() {
     const res = await chrome.storage.local.get(KEY);
     const d = res[KEY] || {};
+    setTimeZone(d.settings?.timeZone);
     return {
       activeId: d.activeId || null,
       channels: d.channels || [],
@@ -277,9 +330,7 @@ var TVWarm = (() => {
 
   // Day number of the warm-up (start date = day 1).
   function dayNumber(channel) {
-    const start = new Date(channel.startDate + 'T00:00');
-    const today = new Date(dateKey() + 'T00:00');
-    return Math.floor((today - start) / 86400000) + 1;
+    return daysBetween(channel.startDate, dateKey()) + 1;
   }
 
   // First uploads: locked while warming. It opens by itself on day 7 or once the channel is Good to start,
@@ -321,5 +372,6 @@ var TVWarm = (() => {
   }
 
   return { levelOf, applyProfile, matchChannel, dayNumber, uploadsAccess, parseFeed, AUTO_DAY, TASK_COUNT, CHECKPOINTS, SOURCES, DEFAULT_SETTINGS, subsTooFast, commentSig, latestCheck, uploadVerdict, uploadsDecision,
+    browserTimeZone, activeTimeZone, setTimeZone, validTimeZone, addDays, daysBetween, zonedTime, nextMidnight, timeIn,
     KEY, TARGETS, SETUP_ITEMS, dateKey, uid, emptyDay, load, save, getDay, totals, dayStatus, gmailAgeMonths, score };
 })();

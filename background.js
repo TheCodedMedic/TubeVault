@@ -444,7 +444,7 @@ async function syncUploads(id, { manual = false } = {}) {
   } catch {
     return { error: "Couldn't reach YouTube. Try again in a minute." };
   }
-  const since = new Date(channel.startDate + 'T00:00').getTime();
+  const since = TVWarm.zonedTime(channel.startDate, 0, 0);
 
   const added = await mutate((d) => {
     const c = d.channels.find((x) => x.id === id);
@@ -505,16 +505,18 @@ async function updateBadge(data) {
 
 // ---------- Alarms: daily reminder + periodic checks ----------
 
+// Times are in the time zone the days follow (see settings), not necessarily the browser's own.
 async function setupAlarms() {
-  const { settings } = await TVWarm.load();
+  const { settings } = await TVWarm.load(); // also applies the chosen time zone
   await chrome.alarms.clear('warm-reminder');
   if (settings.reminder) {
     const [h, m] = (settings.reminderTime || '19:00').split(':').map(Number);
-    const next = new Date();
-    next.setHours(h, m, 0, 0);
-    if (next <= new Date()) next.setDate(next.getDate() + 1);
-    chrome.alarms.create('warm-reminder', { when: next.getTime(), periodInMinutes: 24 * 60 });
+    let when = TVWarm.zonedTime(TVWarm.dateKey(), h, m);
+    if (when <= Date.now() + 1000) when = TVWarm.zonedTime(TVWarm.addDays(TVWarm.dateKey(), 1), h, m);
+    chrome.alarms.create('warm-reminder', { when }); // re-armed after it fires, so it stays right across DST
   }
+  // A new day starts exactly at midnight: roll the badge (and anything else showing "today") over then.
+  chrome.alarms.create('warm-midnight', { when: TVWarm.nextMidnight() + 2000 });
   chrome.alarms.create('warm-tick', { periodInMinutes: 30 });
   updateBadge();
 }
@@ -548,7 +550,8 @@ async function sendReminder() {
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'warm-reminder') sendReminder();
+  if (alarm.name === 'warm-reminder') sendReminder().finally(setupAlarms);
+  if (alarm.name === 'warm-midnight') setupAlarms(); // new day: badge resets, next midnight is scheduled
   if (alarm.name === 'warm-tick') {
     updateBadge(); // also rolls the badge over at midnight
     refreshProfiles() // new day, new name/picture? picked up here even if no YouTube tab is open

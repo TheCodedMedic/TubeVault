@@ -10,6 +10,7 @@
   let device = null;
   let openId = null; // channel shown in detail view
   let selectedDate = TVWarm.dateKey();
+  let lastToday = selectedDate; // "today" as of the last render, to notice when a new day starts
   let adding = false;
   let addName = ''; // typed into the add form (kept so opening the month picker doesn't wipe it)
   let addGmail = '';
@@ -178,6 +179,29 @@
       </div></div>`;
   }
 
+  // ---------- Time zone for "today" ----------
+
+  let zoneList = null;
+  function timeZoneRow(selected) {
+    const browser = TVWarm.browserTimeZone();
+    zoneList = zoneList || (Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone') : [browser]);
+    const opts = [`<option value="" ${!selected ? 'selected' : ''}>Browser time (${esc(browser)})</option>`]
+      .concat(zoneList.map((z) => `<option value="${esc(z)}" ${z === selected ? 'selected' : ''}>${esc(z.replace(/_/g, ' '))}</option>`))
+      .join('');
+    const active = TVWarm.activeTimeZone();
+    return `<label class="w-reminder w-tz">🕛 New day starts at midnight in
+        <select data-action="time-zone">${opts}</select>
+        <span class="muted">it's ${TVWarm.timeIn(active)} there</span></label>
+      ${!selected ? `<div class="w-hint">Using this browser's clock. If this profile's time zone is set to another country (e.g. to match a proxy), pick your own time zone so the day resets at your midnight.</div>` : ''}`;
+  }
+
+  // "Today: Fri 23 Oct · resets at midnight Africa/Lagos (07:30 now)"
+  function dayLine() {
+    const tz = TVWarm.activeTimeZone();
+    const today = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' }).format(new Date());
+    return `Today: <b>${esc(today)}</b> · resets at midnight ${esc(tz.replace(/_/g, ' '))} (${TVWarm.timeIn(tz)} now)`;
+  }
+
   function listHtml() {
     const today = TVWarm.dateKey();
     const cards = data.channels
@@ -210,10 +234,13 @@
           🔔 Remind me at <input type="time" data-action="reminder-time" value="${esc(set.reminderTime)}" /> if today's warm-up isn't done</label>`
       : '';
 
+    const tzRow = data.channels.length ? timeZoneRow(set.timeZone) : '';
+
     return `${accountBanner()}
       ${cards || `<div class="w-empty">No channels yet. Sign in to your new channel on YouTube and add it here, then warm it up for ${T.days} days.</div>`}
       ${form}
-      ${reminder}`;
+      ${reminder}
+      ${tzRow}`;
   }
 
   // A daily task: light green once the minimum is reached (counts for today), full green at the goal.
@@ -376,7 +403,7 @@
 
     // Day chips: every day from the start date to today, plus any day with data.
     const keys = new Set(Object.keys(dayMap));
-    for (let d = new Date(c.startDate + 'T12:00'); TVWarm.dateKey(d) <= TVWarm.dateKey(); d.setDate(d.getDate() + 1)) keys.add(TVWarm.dateKey(d));
+    for (let k = c.startDate, today = TVWarm.dateKey(); k <= today; k = TVWarm.addDays(k, 1)) keys.add(k);
     keys.add(selectedDate);
     const chips = [...keys]
       .sort()
@@ -432,6 +459,7 @@
       ${breakdown}
 
       <h3>Daily warm-up</h3>
+      <div class="w-hint">${dayLine()}</div>
       <div class="w-chips">${chips}</div>
       <div class="w-day">
         ${watchRow(t.watchSec)}
@@ -591,6 +619,9 @@
       send({ type: 'warm:updateUpload', id: openId, uploadId: el.dataset.upload, patch: { collab: el.checked } });
     } else if (action === 'reminder') {
       send({ type: 'warm:settings', patch: { reminder: el.checked } });
+    } else if (action === 'time-zone') {
+      send({ type: 'warm:settings', patch: { timeZone: el.value } });
+      el.blur();
     } else if (action === 'reminder-time') {
       if (el.value) send({ type: 'warm:settings', patch: { reminderTime: el.value } });
     } else if (action === 'watch-slider') {
@@ -736,8 +767,16 @@
 
   // ---------- Boot ----------
 
+  // If the view was on "today", keep it on today when the day changes (midnight, or a new time zone).
+  function rollToday() {
+    const today = TVWarm.dateKey();
+    if (selectedDate === lastToday && today !== lastToday) selectedDate = today;
+    lastToday = today;
+  }
+
   async function refresh() {
-    data = await TVWarm.load();
+    data = await TVWarm.load(); // also applies the chosen time zone
+    rollToday();
     const res = await chrome.storage.local.get(ACCOUNT_KEY);
     account = res[ACCOUNT_KEY] || null;
     if (openId && !data.channels.some((c) => c.id === openId)) openId = null;
@@ -759,9 +798,11 @@
   document.querySelectorAll('[data-tab-btn]').forEach((b) => b.addEventListener('click', () => setTimeout(pollStatus, 100)));
   // Keep "today" and the watch timer fresh while the panel is open.
   setInterval(() => {
-    if (selectedDate < TVWarm.dateKey() && selectedDate === lastToday) selectedDate = TVWarm.dateKey();
-    lastToday = TVWarm.dateKey();
+    rollToday();
     render();
   }, 30 * 1000);
-  let lastToday = TVWarm.dateKey();
+  // Coming back to the sidebar after a while (e.g. the next morning): catch up at once.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refresh();
+  });
 })();

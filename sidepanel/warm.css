@@ -237,7 +237,7 @@ button.small { padding: 5px 12px; border-radius: 14px; border: none; }
 .brand .detect-btn.spin { animation: tv-spin 0.8s linear infinite; }
 @keyframes tv-spin { to { transform: rotate(360deg); } }
 .w-acct { display: flex; gap: 10px; align-items: center; }
-.w-acct > div { flex: 1; min-width: 0; }
+.w-acct > div:not(.w-avatar) { flex: 1; min-width: 0; }
 .w-acct .muted { font-size: 12px; }
 
 /* ---------- Tracking status line ---------- */
@@ -316,3 +316,6 @@ button.small { padding: 5px 12px; border-radius: 14px; border: none; }
 .w-counter-value small { font-weight: 400; font-size: 11px; color: var(--muted); margin-left: 2px; }
 .w-counter.min .w-counter-value, .w-counter.full .w-counter-value { color: var(--green); }
 .w-counter.min .w-counter-label::after, .w-counter.full .w-counter-label::after { content: " ✓"; color: var(--green); font-weight: 700; }
+
+/* ---------- Time zone for "today" ---------- */
+.w-tz select { max-width: 190px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--fg); }
